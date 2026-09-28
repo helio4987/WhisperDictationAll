@@ -53,6 +53,12 @@ final class WhisperBridge: @unchecked Sendable {
     private let context: OpaquePointer
     private let queue = DispatchQueue(label: "com.whisperdictation.whisper", qos: .userInitiated)
     private let vadModelPath: String?
+    /// Whisper language code (e.g. "en", "pt") this bridge decodes with. Set once at
+    /// init — a bridge is owned by one `LanguageModelSlot`/language for its lifetime;
+    /// switching languages means loading a different bridge, not mutating this one.
+    /// Exposed read-only so callers (tests, `LanguageModelSlot`) can confirm which
+    /// language an already-constructed bridge was configured for.
+    let language: String
 
     /// True once `shutdownAndFree()` has freed `context`. Written and read only on
     /// `queue` (the same serialization that protects every context access), except
@@ -74,17 +80,21 @@ final class WhisperBridge: @unchecked Sendable {
         #endif
     }
 
-    init(modelPath: String) throws {
+    /// - Parameter language: Whisper language code to decode with (e.g. "en", "pt").
+    ///   Defaults to "en" so existing call sites (the primary English bridge) need no
+    ///   changes. Passed to whisper for both `warmup()` and every `transcribe()` call.
+    init(modelPath: String, language: String = "en") throws {
         var contextParams = whisper_context_default_params()
         contextParams.use_gpu = Self.isAppleSilicon
         contextParams.flash_attn = Self.isAppleSilicon
 
-        fputs("[WhisperBridge] Loading model: \(modelPath)\n", stderr)
+        fputs("[WhisperBridge] Loading model: \(modelPath) | language: \(language)\n", stderr)
 
         guard let ctx = whisper_init_from_file_with_params(modelPath, contextParams) else {
             throw WhisperError.modelLoadFailed(modelPath)
         }
         self.context = ctx
+        self.language = language
 
         let vadPath = ModelManager.shared.vadModelPath()
         self.vadModelPath = vadPath
@@ -113,7 +123,7 @@ final class WhisperBridge: @unchecked Sendable {
                 params.n_threads = 1
                 params.single_segment = true
                 params.no_context = true
-                let langCStr = strdup("en")
+                let langCStr = strdup(self.language)
                 params.language = UnsafePointer(langCStr)
                 defer { free(langCStr) }
 
@@ -243,7 +253,7 @@ final class WhisperBridge: @unchecked Sendable {
         }
 
         // Allocate C strings (freed in defer)
-        let langCStr = strdup("en")
+        let langCStr = strdup(self.language)
         let suppressCStr = strdup("(Thank you|Thanks for watching|Please subscribe|you)")
         let promptCStr = prompt.isEmpty ? nil : strdup(prompt)
         var vadPathCStr: UnsafeMutablePointer<CChar>?
