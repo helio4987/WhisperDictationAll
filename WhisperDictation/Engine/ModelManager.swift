@@ -25,6 +25,12 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
         let accuracy: String
         let url: URL
         let isQuantized: Bool
+        /// True for language-agnostic ("multilingual") checkpoints — the ones without
+        /// a ".en" suffix in their file name — which support ~99 languages selected at
+        /// inference time via `WhisperBridge`'s `language` parameter. English-only
+        /// (".en") models remain faster/more accurate for English specifically and are
+        /// unaffected by this flag.
+        let isMultilingual: Bool
         /// Pinned SHA256 of the exact file at `url`, taken from the HuggingFace LFS
         /// pointer (`.../raw/main/<file>` → `oid sha256:`). Verified after download.
         let sha256: String
@@ -47,6 +53,7 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
             size: "142 MB", speed: "Fastest", accuracy: "Good",
             url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin")!,
             isQuantized: false,
+            isMultilingual: false,
             sha256: "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002"
         )
         static let smallEn = ModelInfo(
@@ -54,6 +61,7 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
             size: "466 MB", speed: "Balanced", accuracy: "Better",
             url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin")!,
             isQuantized: false,
+            isMultilingual: false,
             sha256: "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d"
         )
         static let mediumEn = ModelInfo(
@@ -61,6 +69,7 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
             size: "1.5 GB", speed: "Slower", accuracy: "Best",
             url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin")!,
             isQuantized: false,
+            isMultilingual: false,
             sha256: "cc37e93478338ec7700281a7ac30a10128929eb8f427dda2e865faa8f6da4356"
         )
 
@@ -70,6 +79,7 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
             size: "57 MB", speed: "Fastest", accuracy: "Good",
             url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin")!,
             isQuantized: true,
+            isMultilingual: false,
             sha256: "4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f"
         )
         static let smallEnQ5 = ModelInfo(
@@ -77,6 +87,7 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
             size: "181 MB", speed: "Fast", accuracy: "Better",
             url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin")!,
             isQuantized: true,
+            isMultilingual: false,
             sha256: "bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30"
         )
         static let mediumEnQ5 = ModelInfo(
@@ -84,7 +95,60 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
             size: "515 MB", speed: "Balanced", accuracy: "Best",
             url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q5_0.bin")!,
             isQuantized: true,
+            isMultilingual: false,
             sha256: "76733e26ad8fe1c7a5bf7531a9d41917b2adc0f20f2e4f5531688a8c6cd88eb0"
+        )
+
+        // Multilingual models — same architecture/tiers as the English-only models
+        // above, minus the ".en" suffix. Support ~99 languages selected at inference
+        // time (see WhisperLanguages.swift for the filtered, reliable subset).
+        static let baseMultilingual = ModelInfo(
+            name: "Base (Multilingual)", fileName: "ggml-base.bin",
+            size: "141 MB", speed: "Fastest", accuracy: "Good",
+            url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin")!,
+            isQuantized: false,
+            isMultilingual: true,
+            sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"
+        )
+        static let smallMultilingual = ModelInfo(
+            name: "Small (Multilingual)", fileName: "ggml-small.bin",
+            size: "465 MB", speed: "Balanced", accuracy: "Better",
+            url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin")!,
+            isQuantized: false,
+            isMultilingual: true,
+            sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"
+        )
+        static let mediumMultilingual = ModelInfo(
+            name: "Medium (Multilingual)", fileName: "ggml-medium.bin",
+            size: "1.5 GB", speed: "Slower", accuracy: "Best",
+            url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin")!,
+            isQuantized: false,
+            isMultilingual: true,
+            sha256: "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208"
+        )
+        static let baseMultilingualQ5 = ModelInfo(
+            name: "Base Q5 (Multilingual)", fileName: "ggml-base-q5_1.bin",
+            size: "57 MB", speed: "Fastest", accuracy: "Good",
+            url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin")!,
+            isQuantized: true,
+            isMultilingual: true,
+            sha256: "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"
+        )
+        static let smallMultilingualQ5 = ModelInfo(
+            name: "Small Q5 (Multilingual)", fileName: "ggml-small-q5_1.bin",
+            size: "181 MB", speed: "Fast", accuracy: "Better",
+            url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin")!,
+            isQuantized: true,
+            isMultilingual: true,
+            sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"
+        )
+        static let mediumMultilingualQ5 = ModelInfo(
+            name: "Medium Q5 (Multilingual)", fileName: "ggml-medium-q5_0.bin",
+            size: "514 MB", speed: "Balanced", accuracy: "Best",
+            url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin")!,
+            isQuantized: true,
+            isMultilingual: true,
+            sha256: "19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f"
         )
 
         // VAD model
@@ -93,11 +157,21 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
             size: "2 MB", speed: "", accuracy: "",
             url: URL(string: "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin")!,
             isQuantized: false,
+            isMultilingual: false,
             sha256: "29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf"
         )
 
-        static let all: [ModelInfo] = [baseEnQ5, smallEnQ5, mediumEnQ5, baseEn, smallEn, mediumEn]
+        static let all: [ModelInfo] = [
+            baseEnQ5, smallEnQ5, mediumEnQ5, baseEn, smallEn, mediumEn,
+            baseMultilingualQ5, smallMultilingualQ5, mediumMultilingualQ5,
+            baseMultilingual, smallMultilingual, mediumMultilingual,
+        ]
         static let recommended: [ModelInfo] = [baseEnQ5, smallEnQ5, mediumEnQ5]
+        /// Recommended (quantized) multilingual tier — mirrors `recommended` for the
+        /// English-only catalog, used by the secondary-language model picker.
+        static let recommendedMultilingual: [ModelInfo] = [
+            baseMultilingualQ5, smallMultilingualQ5, mediumMultilingualQ5,
+        ]
     }
 
     var modelsDirectory: URL {
@@ -113,6 +187,19 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
         let info = ModelInfo.all.first { $0.settingsId == selectedModel }
             ?? ModelInfo.all.first { $0.fileName.contains(selectedModel) }
             ?? ModelInfo.smallEnQ5
+        let path = modelsDirectory.appendingPathComponent(info.fileName).path
+        return fileManager.fileExists(atPath: path) ? path : nil
+    }
+
+    /// Same lookup as `activeModelPath()`, scoped to `AppSettings.secondaryModelSelection`
+    /// and restricted to multilingual catalog entries — used by the secondary-language
+    /// `LanguageModelSlot` so a stale/foreign id can never resolve to an English-only
+    /// model file.
+    func secondaryModelPath() -> String? {
+        let selectedModel = AppSettings.shared.secondaryModelSelection
+        let info = ModelInfo.all.first { $0.isMultilingual && $0.settingsId == selectedModel }
+            ?? ModelInfo.all.first { $0.isMultilingual && $0.fileName.contains(selectedModel) }
+            ?? ModelInfo.smallMultilingualQ5
         let path = modelsDirectory.appendingPathComponent(info.fileName).path
         return fileManager.fileExists(atPath: path) ? path : nil
     }
