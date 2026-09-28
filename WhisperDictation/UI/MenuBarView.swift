@@ -15,6 +15,11 @@ struct MenuBarView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 10)
 
+            // Per-language loaded/unloaded state
+            languagesSection
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+
             // Alerts (permissions / errors)
             if !permissions.allPermissionsGranted || engine.modelLoadError != nil || engine.transcriptionError != nil || modelManager.downloadError != nil {
                 alertsSection
@@ -105,6 +110,35 @@ struct MenuBarView: View {
 
             Spacer()
         }
+    }
+
+    // MARK: - Languages (loaded/unloaded state)
+
+    private var languagesSection: some View {
+        VStack(spacing: 4) {
+            LanguageStatusRow(
+                label: "Primary (English)",
+                isLoaded: engine.isModelLoaded,
+                isLoading: false,
+                loadFailed: false
+            )
+            LanguageStatusRow(
+                label: "Secondary (\(secondaryLanguageDisplayName))",
+                isLoaded: engine.secondaryModelLoadState == .ready,
+                isLoading: engine.secondaryModelLoadState == .loading,
+                loadFailed: isSecondaryLoadFailed
+            )
+        }
+    }
+
+    private var secondaryLanguageDisplayName: String {
+        WhisperLanguages.language(forCode: settings.secondaryLanguageCode)?.displayName
+            ?? settings.secondaryLanguageCode
+    }
+
+    private var isSecondaryLoadFailed: Bool {
+        if case .failed = engine.secondaryModelLoadState { return true }
+        return false
     }
 
     // MARK: - Alerts
@@ -220,6 +254,48 @@ struct MenuBarView: View {
 
     private var hotkeyLabel: String {
         KeyCodeNames.shortLabel(for: settings.hotkeyKeyCode)
+    }
+}
+
+// MARK: - Language Status Row
+
+/// One row per language showing whether its model is currently resident in memory.
+/// Primary always reports `isLoading: false` since it has no lazy-load path yet
+/// (it loads once at launch and stays loaded) — its dot is simply green once
+/// `isModelLoaded` flips true. Secondary genuinely cycles through all three states
+/// as it lazily loads on first use and auto-unloads after the configured idle
+/// timeout, driven by `LanguageModelSlot`.
+private struct LanguageStatusRow: View {
+    let label: String
+    let isLoaded: Bool
+    let isLoading: Bool
+    let loadFailed: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 6, height: 6)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(statusLabel)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(dotColor)
+        }
+    }
+
+    private var dotColor: Color {
+        if loadFailed { return .red }
+        if isLoading { return .cyan }
+        return isLoaded ? .green : .secondary
+    }
+
+    private var statusLabel: String {
+        if loadFailed { return "Failed" }
+        if isLoading { return "Loading…" }
+        return isLoaded ? "Loaded" : "Unloaded"
     }
 }
 

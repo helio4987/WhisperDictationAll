@@ -51,6 +51,16 @@ actor LanguageModelSlot<Resource> {
     /// manually-fired scheduler.
     private let scheduleIdleUnload: (_ afterSeconds: TimeInterval, _ fire: @escaping () -> Void) -> IdleTimerHandle
 
+    /// Fired on every `loadState` transition, with the new state — lets a UI layer
+    /// (menu bar) mirror this actor's state into an `@Observable`/main-thread
+    /// property without polling. Not part of the actor's synchronization: it's a
+    /// notification side-channel, invoked from within the actor after each
+    /// transition, so the closure itself must not touch actor-isolated state.
+    /// Settable after construction (`setOnStateChange`) since the callback
+    /// typically needs to capture the owning object, which doesn't exist yet
+    /// while this slot's own `init` argument list is being evaluated.
+    private var onStateChange: (@Sendable (LoadState) -> Void)?
+
     private var loadingTask: Task<Resource, Error>?
     private var idleTimerHandle: IdleTimerHandle?
 
@@ -69,6 +79,22 @@ actor LanguageModelSlot<Resource> {
         self.load = load
         self.unloadResource = unloadResource
         self.scheduleIdleUnload = scheduleIdleUnload
+    }
+
+    /// Registers (or replaces) the state-change callback after construction —
+    /// needed because the callback typically captures the owning object (e.g.
+    /// `DictationEngine`), which can't exist yet while this actor's own `init`
+    /// argument list is being evaluated in that object's own property initializer.
+    func setOnStateChange(_ callback: (@Sendable (LoadState) -> Void)?) {
+        onStateChange = callback
+    }
+
+    /// Sets `loadState` and notifies `onStateChange`, if any. Single write path so
+    /// the callback can never be missed for a transition (every assignment in this
+    /// file goes through this rather than `loadState = ...` directly).
+    private func setLoadState(_ newState: LoadState) {
+        loadState = newState
+        onStateChange?(newState)
     }
 
     /// Default production scheduler: a one-shot `Timer` on the main run loop.
@@ -92,7 +118,7 @@ actor LanguageModelSlot<Resource> {
             return try await loadingTask.value
         }
 
-        loadState = .loading
+        setLoadState(.loading)
         let task = Task { () throws -> Resource in
             try await self.load()
         }
@@ -101,13 +127,13 @@ actor LanguageModelSlot<Resource> {
         do {
             let resource = try await task.value
             self.resource = resource
-            loadState = .ready
+            setLoadState(.ready)
             loadingTask = nil
             resetIdleTimer()
             return resource
         } catch {
             self.resource = nil
-            loadState = .failed(error.localizedDescription)
+            setLoadState(.failed(error.localizedDescription))
             loadingTask = nil
             throw error
         }
@@ -122,7 +148,7 @@ actor LanguageModelSlot<Resource> {
             unloadResource(resource)
         }
         resource = nil
-        loadState = .unloaded
+        setLoadState(.unloaded)
     }
 
     private func resetIdleTimer() {

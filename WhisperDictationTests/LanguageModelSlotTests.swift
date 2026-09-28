@@ -236,4 +236,61 @@ final class LanguageModelSlotTests: XCTestCase {
         _ = try await slot.ensureLoaded()
         XCTAssertEqual(scheduler.scheduled.last?.afterSeconds, 300)
     }
+
+    // MARK: - onStateChange notifications (menu bar mirroring)
+
+    func testOnStateChangeFiresForLoadingThenReady() async throws {
+        let scheduler = FakeScheduler()
+        let observed = Box<[LanguageModelSlot<FakeResource>.LoadState]>([])
+        let slot = makeSlot(idleTimeoutMinutes: 10, scheduler: scheduler)
+        await slot.setOnStateChange { state in observed.value.append(state) }
+
+        _ = try await slot.ensureLoaded()
+
+        XCTAssertEqual(observed.value, [.loading, .ready])
+    }
+
+    func testOnStateChangeFiresFailedOnLoadError() async {
+        let scheduler = FakeScheduler()
+        let observed = Box<[LanguageModelSlot<FakeResource>.LoadState]>([])
+        struct BoomError: Error {}
+        let slot = makeSlot(idleTimeoutMinutes: 10, scheduler: scheduler, loadImpl: { throw BoomError() })
+        await slot.setOnStateChange { state in observed.value.append(state) }
+
+        _ = try? await slot.ensureLoaded()
+
+        XCTAssertEqual(observed.value.count, 2)
+        XCTAssertEqual(observed.value.first, .loading)
+        if case .failed = observed.value.last {
+            // ok
+        } else {
+            XCTFail("expected .failed as last observed state, got \(String(describing: observed.value.last))")
+        }
+    }
+
+    func testOnStateChangeFiresUnloadedOnUnload() async throws {
+        let scheduler = FakeScheduler()
+        let observed = Box<[LanguageModelSlot<FakeResource>.LoadState]>([])
+        let slot = makeSlot(idleTimeoutMinutes: 10, scheduler: scheduler)
+        await slot.setOnStateChange { state in observed.value.append(state) }
+
+        _ = try await slot.ensureLoaded()
+        await slot.unload()
+
+        XCTAssertEqual(observed.value, [.loading, .ready, .unloaded])
+    }
+
+    func testSetOnStateChangeCanBeReplaced() async throws {
+        let scheduler = FakeScheduler()
+        let firstObserved = Box<Int>(0)
+        let secondObserved = Box<Int>(0)
+        let slot = makeSlot(idleTimeoutMinutes: 10, scheduler: scheduler)
+
+        await slot.setOnStateChange { _ in firstObserved.value += 1 }
+        await slot.setOnStateChange { _ in secondObserved.value += 1 }
+        _ = try await slot.ensureLoaded()
+
+        XCTAssertEqual(firstObserved.value, 0, "replaced callback must not fire")
+        XCTAssertEqual(secondObserved.value, 2, "loading + ready")
+    }
 }

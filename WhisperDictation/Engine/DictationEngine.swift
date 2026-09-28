@@ -39,6 +39,12 @@ final class DictationEngine {
     /// Drives the menu bar hold indicator.
     private(set) var isHoldingForToggle: Bool = false
 
+    /// Mirrors `secondarySlot`'s actor-isolated `loadState` onto the main thread so
+    /// SwiftUI (menu bar) can display it without awaiting into the actor on every
+    /// render. Updated via `secondarySlot`'s `onStateChange` callback at each real
+    /// transition — not polled.
+    private(set) var secondaryModelLoadState: LanguageModelSlot<WhisperBridge>.LoadState = .unloaded
+
     private var whisperBridge: WhisperBridge?
     private let audioCapture = AudioCapture()
     private let textInjector = TextInjector()
@@ -94,6 +100,15 @@ final class DictationEngine {
         secondaryHotkeyMonitor?.start()
         loadModelAsync()
         LaunchAtLoginHelper.reconcile()
+
+        let slot = secondarySlot
+        Task { [weak self] in
+            await slot.setOnStateChange { [weak self] newState in
+                Task { @MainActor in
+                    self?.secondaryModelLoadState = newState
+                }
+            }
+        }
 
         // Free whisper's Metal-backed contexts before exit(): NSApplication's
         // terminate path never runs Swift deinits, and ggml aborts at exit
