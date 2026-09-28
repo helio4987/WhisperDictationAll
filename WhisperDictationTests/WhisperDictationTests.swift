@@ -253,6 +253,105 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.secondaryIdleTimeoutMinutes, 0)
     }
 
+    // MARK: - Secondary vocabulary
+
+    func testSecondaryVocabularyPromptDefaultsToPortugalPresetWhenLanguageIsPortuguese() {
+        let settings = AppSettings.shared
+        let savedPrompt = settings.secondaryVocabularyPrompt
+        let savedLanguage = settings.secondaryLanguageCode
+        defer {
+            settings.secondaryVocabularyPrompt = savedPrompt
+            settings.secondaryLanguageCode = savedLanguage
+        }
+
+        // Clear any stored prompt so the default-lookup path is exercised.
+        UserDefaults.standard.removeObject(forKey: "secondaryVocabularyPrompt")
+        settings.secondaryLanguageCode = "pt"
+
+        XCTAssertEqual(settings.secondaryVocabularyPrompt, AppSettings.defaultPortugalPortuguesePrompt)
+        XCTAssertTrue(settings.secondaryVocabularyPrompt.contains("Facto"))
+        XCTAssertTrue(settings.secondaryVocabularyPrompt.contains("português europeu"))
+    }
+
+    func testSecondaryVocabularyPromptDefaultsToEmptyForUnknownLanguage() {
+        let settings = AppSettings.shared
+        let savedPrompt = settings.secondaryVocabularyPrompt
+        let savedLanguage = settings.secondaryLanguageCode
+        defer {
+            settings.secondaryVocabularyPrompt = savedPrompt
+            settings.secondaryLanguageCode = savedLanguage
+        }
+
+        UserDefaults.standard.removeObject(forKey: "secondaryVocabularyPrompt")
+        settings.secondaryLanguageCode = "fr"
+
+        XCTAssertEqual(settings.secondaryVocabularyPrompt, "")
+    }
+
+    func testSecondaryVocabularyPromptRoundTrips() {
+        let settings = AppSettings.shared
+        let original = settings.secondaryVocabularyPrompt
+        defer { settings.secondaryVocabularyPrompt = original }
+
+        settings.secondaryVocabularyPrompt = "custom secondary vocab"
+        XCTAssertEqual(settings.secondaryVocabularyPrompt, "custom secondary vocab")
+    }
+
+    func testDefaultSecondaryVocabularyPromptLookup() {
+        XCTAssertEqual(AppSettings.defaultSecondaryVocabularyPrompt(forLanguageCode: "pt"), AppSettings.defaultPortugalPortuguesePrompt)
+        XCTAssertEqual(AppSettings.defaultSecondaryVocabularyPrompt(forLanguageCode: "es"), "")
+    }
+
+    func testIncludeEnglishTermsInSecondaryDefaultsFalseAndRoundTrips() {
+        let settings = AppSettings.shared
+        let original = settings.includeEnglishTermsInSecondary
+        defer { settings.includeEnglishTermsInSecondary = original }
+
+        let key = "includeEnglishTermsInSecondary"
+        let saved = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        XCTAssertFalse(AppSettings.shared.includeEnglishTermsInSecondary)
+        if let saved { UserDefaults.standard.set(saved, forKey: key) }
+
+        settings.includeEnglishTermsInSecondary = true
+        XCTAssertTrue(settings.includeEnglishTermsInSecondary)
+    }
+
+    func testEffectiveSecondaryVocabularyBaseExcludesEnglishByDefault() {
+        let settings = AppSettings.shared
+        let savedInclude = settings.includeEnglishTermsInSecondary
+        let savedSecondary = settings.secondaryVocabularyPrompt
+        defer {
+            settings.includeEnglishTermsInSecondary = savedInclude
+            settings.secondaryVocabularyPrompt = savedSecondary
+        }
+
+        settings.includeEnglishTermsInSecondary = false
+        settings.secondaryVocabularyPrompt = "SECONDARY_MARKER"
+
+        XCTAssertEqual(settings.effectiveSecondaryVocabularyBase, "SECONDARY_MARKER")
+    }
+
+    func testEffectiveSecondaryVocabularyBasePrefixesEnglishWhenEnabled() {
+        let settings = AppSettings.shared
+        let savedInclude = settings.includeEnglishTermsInSecondary
+        let savedSecondary = settings.secondaryVocabularyPrompt
+        let savedPrimary = settings.vocabularyPrompt
+        defer {
+            settings.includeEnglishTermsInSecondary = savedInclude
+            settings.secondaryVocabularyPrompt = savedSecondary
+            settings.vocabularyPrompt = savedPrimary
+        }
+
+        settings.vocabularyPrompt = "PRIMARY_MARKER"
+        settings.secondaryVocabularyPrompt = "SECONDARY_MARKER"
+        settings.includeEnglishTermsInSecondary = true
+
+        let result = settings.effectiveSecondaryVocabularyBase
+        XCTAssertTrue(result.hasPrefix("PRIMARY_MARKER"))
+        XCTAssertTrue(result.contains("SECONDARY_MARKER"))
+    }
+
     func testIdleTimeoutMinutesZeroMeansNeverRoundTrips() {
         let settings = AppSettings.shared
         let original = settings.secondaryIdleTimeoutMinutes

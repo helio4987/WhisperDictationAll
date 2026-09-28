@@ -505,8 +505,11 @@ final class DictationEngine {
         // `.processing` as before.
         state = language == .secondary ? .loadingModel : .processing
 
+        let promptBase = language == .secondary
+            ? AppSettings.shared.effectiveSecondaryVocabularyBase
+            : AppSettings.shared.vocabularyPrompt
         let prompt = Self.buildPrompt(
-            base: AppSettings.shared.vocabularyPrompt,
+            base: promptBase,
             customTerms: AppSettings.shared.customTerms
         )
         let injector = self.textInjector

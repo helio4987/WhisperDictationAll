@@ -32,6 +32,8 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
         case secondaryHotkeyKeyCode
         case primaryIdleTimeoutMinutes
         case secondaryIdleTimeoutMinutes
+        case secondaryVocabularyPrompt
+        case includeEnglishTermsInSecondary
     }
 
     // MARK: - Properties
@@ -131,6 +133,50 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
             defaults.string(forKey: Key.vocabularyPrompt.rawValue) ?? Self.defaultVocabularyPrompt
         }
         set { defaults.set(newValue, forKey: Key.vocabularyPrompt.rawValue); objectWillChange.send() }
+    }
+
+    /// Vocabulary prompt used for secondary-language dictation. Whisper's
+    /// `initial_prompt` biases both vocabulary AND style/spelling toward whatever
+    /// the prompt itself is written in (see OpenAI's prompting guide) — so a prompt
+    /// written with European Portuguese-specific spellings measurably pulls output
+    /// away from Whisper's Brazilian-leaning training bias for "pt", even though
+    /// Whisper has no separate pt-PT/pt-BR language code to select directly.
+    ///
+    /// Defaults to a curated PT-PT preset when the current secondary language is
+    /// Portuguese, and empty otherwise (no useful generic default exists for an
+    /// arbitrary language). Falls back live if the stored value is empty AND the
+    /// language is still "pt", so switching away and back to Portuguese without
+    /// ever having typed a custom prompt still gets the preset.
+    var secondaryVocabularyPrompt: String {
+        get {
+            if let stored = defaults.string(forKey: Key.secondaryVocabularyPrompt.rawValue), !stored.isEmpty {
+                return stored
+            }
+            return Self.defaultSecondaryVocabularyPrompt(forLanguageCode: secondaryLanguageCode)
+        }
+        set { defaults.set(newValue, forKey: Key.secondaryVocabularyPrompt.rawValue); objectWillChange.send() }
+    }
+
+    /// When true, the secondary prompt is prefixed with the primary (English)
+    /// vocabulary prompt — useful for bilingual technical dictation where English
+    /// jargon (API, JSON, GitHub, ...) shows up mid-sentence in the secondary
+    /// language too. Default false: most secondary-language dictation is prose,
+    /// not code-mixed technical speech, so the extra ~500 words of English terms
+    /// would otherwise eat into the word budget for no benefit by default.
+    var includeEnglishTermsInSecondary: Bool {
+        get { defaults.bool(forKey: Key.includeEnglishTermsInSecondary.rawValue) }
+        set { defaults.set(newValue, forKey: Key.includeEnglishTermsInSecondary.rawValue); objectWillChange.send() }
+    }
+
+    /// The effective base vocabulary text for secondary-language dictation: the
+    /// secondary prompt, optionally prefixed with the primary (English) prompt
+    /// when `includeEnglishTermsInSecondary` is on. Single source used by
+    /// `DictationEngine` so the "include English terms" toggle can't drift between
+    /// the streaming and non-streaming transcribe paths.
+    var effectiveSecondaryVocabularyBase: String {
+        includeEnglishTermsInSecondary
+            ? vocabularyPrompt + " " + secondaryVocabularyPrompt
+            : secondaryVocabularyPrompt
     }
 
     var launchAtLogin: Bool {
@@ -277,4 +323,38 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
         terminal, shell, bash, zsh, fish, tmux, iTerm, PowerShell, \
         regex, cron, sed, awk, grep, curl, wget, jq, yq.
         """
+
+    // MARK: - Secondary Vocabulary Defaults
+
+    /// Curated European Portuguese (pt-PT) vocabulary preset. Whisper's "pt" model
+    /// is trained mostly on Brazilian Portuguese, so its default output leans
+    /// pt-BR regardless of the speaker's actual accent — there is no separate
+    /// pt-PT language code to select. Writing the prompt itself using PT-PT
+    /// spellings (which differ from PT-BR for many everyday words) measurably
+    /// biases Whisper's output toward matching that spelling/style, per OpenAI's
+    /// documented prompting behavior (the model continues in the style of the
+    /// prompt, not just its vocabulary).
+    static let defaultPortugalPortuguesePrompt = """
+        Transcrição em português europeu de Portugal, com ortografia e vocabulário \
+        de Portugal (não brasileiro). Facto, ecrã, ficheiro, ratinho, telemóvel, \
+        autocarro, comboio, pequeno-almoço, casa de banho, frigorífico, \
+        electrodomésticos, pastelaria, talho, sandes, gelado, sumo, rebuçado, \
+        chávena, fato, calças, sapatilhas, camisola, fixe, giro, pois, então, \
+        já agora, se calhar, está bem, pronto, tipo, portanto, imenso, bué, \
+        atrasado, adiantado, marcação, consulta, hospital, farmácia, \
+        conta corrente, multibanco, IVA, factura, orçamento, currículo, \
+        reunião, colega, chefe, empresa, escritório, atrasar-me, apanhar o \
+        autocarro, ir de comboio, marcar uma reunião, enviar um email, \
+        WiFi, router, computador, portátil, aplicação, actualização, \
+        Lisboa, Porto, Coimbra, Braga, Faro, Algarve, Alentejo, Minho.
+        """
+
+    /// Returns a sensible default secondary vocabulary prompt for `languageCode`,
+    /// or an empty string when no curated preset exists for that language yet.
+    static func defaultSecondaryVocabularyPrompt(forLanguageCode languageCode: String) -> String {
+        switch languageCode {
+        case "pt": return defaultPortugalPortuguesePrompt
+        default: return ""
+        }
+    }
 }
