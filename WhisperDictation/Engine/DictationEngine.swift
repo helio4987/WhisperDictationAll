@@ -5,8 +5,22 @@ import Cocoa
 enum DictationState: String {
     case idle
     case recording
+    /// Recording has stopped and the active language's model is still being loaded
+    /// (secondary-language cold start, or primary after an idle-unload). Distinct
+    /// from `.processing` (model ready, whisper is decoding audio) so the menu bar
+    /// can show a different message for "waiting on a multi-second model load" vs
+    /// "transcribing your speech".
+    case loadingModel
     case processing
     case typing
+}
+
+/// Which hotkey/language a recording in progress belongs to. Both hotkeys share the
+/// same recording/transcribe state machine — only one dictation is ever active — this
+/// just tracks which `WhisperBridge`/vocabulary/language to use for it.
+enum ActiveLanguage {
+    case primary
+    case secondary
 }
 
 @Observable
@@ -31,6 +45,31 @@ final class DictationEngine {
     private let soundFeedback = SoundFeedback()
     private var hotkeyMonitor: HotkeyMonitor?
 
+    /// Secondary-language dictation: a second hotkey, lazily loaded/auto-unloaded
+    /// via `LanguageModelSlot`. Push-to-talk only (see class doc) — no toggle mode,
+    /// no live dictation for the secondary path in this iteration.
+    private var secondaryHotkeyMonitor: HotkeyMonitor?
+    private let secondarySlot = LanguageModelSlot<WhisperBridge>(
+        idleTimeoutMinutes: { AppSettings.shared.secondaryIdleTimeoutMinutes },
+        load: {
+            guard let modelPath = ModelManager.shared.secondaryModelPath() else {
+                throw WhisperError.modelLoadFailed("No secondary-language model downloaded")
+            }
+            let bridge = try WhisperBridge(modelPath: modelPath, language: AppSettings.shared.secondaryLanguageCode)
+            await bridge.warmup()
+            return bridge
+        },
+        unload: { bridge in
+            bridge.shutdownAndFree()
+        }
+    )
+    /// Which language a recording currently in progress (or being transcribed)
+    /// belongs to. Set when a hotkey starts a recording; read by the
+    /// transcribe/finish path to pick the right bridge, language, and vocabulary.
+    /// Both hotkeys drive the SAME state machine — only one dictation is ever
+    /// active — so this is just a routing tag, not a second parallel session.
+    private var activeLanguage: ActiveLanguage = .primary
+
     private let minRecordingDuration: TimeInterval = 0.3
     private var recordingStartTime: Date?
 
@@ -51,6 +90,8 @@ final class DictationEngine {
         }
         setupHotkeyMonitor()
         hotkeyMonitor?.start()
+        setupSecondaryHotkeyMonitor()
+        secondaryHotkeyMonitor?.start()
         loadModelAsync()
         LaunchAtLoginHelper.reconcile()
 
@@ -92,6 +133,7 @@ final class DictationEngine {
         hotkeyMonitor?.stop()
         setupHotkeyMonitor()
         hotkeyMonitor?.start()
+        restartSecondaryHotkeyMonitor()
     }
 
     // MARK: - Model Loading
@@ -169,13 +211,53 @@ final class DictationEngine {
         )
     }
 
+    private func setupSecondaryHotkeyMonitor() {
+        secondaryHotkeyMonitor = HotkeyMonitor(
+            onKeyDown: { [weak self] in self?.handleSecondaryKeyDown() },
+            onKeyUp: { [weak self] in self?.handleSecondaryKeyUp() },
+            keyCodeProvider: { AppSettings.shared.secondaryHotkeyKeyCode }
+        )
+    }
+
     func startMonitoring() {
         hotkeyMonitor?.start()
+        secondaryHotkeyMonitor?.start()
     }
 
     func stopMonitoring() {
         cancelPendingToggle()
         hotkeyMonitor?.stop()
+        secondaryHotkeyMonitor?.stop()
+    }
+
+    func restartSecondaryHotkeyMonitor() {
+        secondaryHotkeyMonitor?.stop()
+        setupSecondaryHotkeyMonitor()
+        secondaryHotkeyMonitor?.start()
+    }
+
+    // MARK: - Secondary Hotkey Dispatch (push-to-talk only)
+
+    /// Secondary-language dictation is push-to-talk only — no toggle mode, no live
+    /// dictation — so its dispatch is a straight subset of the primary push-to-talk
+    /// case, not a mirror of the full mode-aware `keyDownAction`/`toggleHoldAction`
+    /// machinery above. A key-down while busy cancels, same as primary push-to-talk.
+    private func handleSecondaryKeyDown() {
+        let isBusy = state == .loadingModel || state == .processing || state == .typing
+        if isBusy {
+            cancelTranscription()
+        } else if state == .idle {
+            activeLanguage = .secondary
+            startRecording()
+        }
+        // A key-down while already `.recording` (from either hotkey) is ignored —
+        // matches primary push-to-talk's "held key generates repeat key-downs" case,
+        // which HotkeyMonitor already filters via `isKeyHeld` before calling back.
+    }
+
+    private func handleSecondaryKeyUp() {
+        guard activeLanguage == .secondary else { return }
+        stopRecordingAndTranscribe()
     }
 
     // MARK: - Hotkey Mode Dispatch
@@ -200,7 +282,8 @@ final class DictationEngine {
     static func keyDownAction(mode: AppSettings.HotkeyMode, state: DictationState) -> KeyDownAction {
         switch mode {
         case .pushToTalk:
-            return (state == .processing || state == .typing) ? .cancelTranscription : .startRecording
+            let isBusy = state == .loadingModel || state == .processing || state == .typing
+            return isBusy ? .cancelTranscription : .startRecording
         case .toggle:
             return .scheduleToggle
         }
@@ -216,7 +299,7 @@ final class DictationEngine {
         switch state {
         case .idle: return .startRecording
         case .recording: return .stopAndTranscribe
-        case .processing, .typing: return .cancelTranscription
+        case .loadingModel, .processing, .typing: return .cancelTranscription
         }
     }
 
@@ -225,6 +308,7 @@ final class DictationEngine {
         case .cancelTranscription:
             cancelTranscription()
         case .startRecording:
+            activeLanguage = .primary
             startRecording()
         case .scheduleToggle:
             scheduleToggleAction()
@@ -240,14 +324,31 @@ final class DictationEngine {
     /// would be wrong there — its single-flight `activeCancelFlag` is overwritten as each
     /// queued call enters and cleared as each finishes, so it can target the wrong decode
     /// (or none at all).
+    ///
+    /// A cancel while `.loadingModel` (secondary cold start still loading) has no
+    /// bridge to cancel yet — `stopRecordingAndTranscribe`'s `Task` checks
+    /// `cancelRequested` before awaiting the load and exits without transcribing.
     private func cancelTranscription() {
-        fputs("[DictationEngine] Cancel requested during \(state.rawValue).\n", stderr)
+        fputs("[DictationEngine] Cancel requested during \(state.rawValue) (\(activeLanguage)).\n", stderr)
         if let liveFlagForDrain = drainCancelFlag {
             liveFlagForDrain.cancel()
         } else {
-            whisperBridge?.cancelTranscription()
+            cancelRequested = true
+            switch activeLanguage {
+            case .primary:
+                whisperBridge?.cancelTranscription()
+            case .secondary:
+                let slot = secondarySlot
+                Task { await slot.currentResource?.cancelTranscription() }
+            }
         }
     }
+
+    /// Set when a cancel arrives while `.loadingModel` — there's no bridge yet to
+    /// call `cancelTranscription()` on. Checked once the load resolves so the
+    /// engine drops straight to idle instead of transcribing a cancelled recording.
+    /// Cleared at the start of every new recording.
+    private var cancelRequested = false
 
     private func handleKeyUp() {
         switch AppSettings.shared.hotkeyMode {
@@ -331,16 +432,35 @@ final class DictationEngine {
 
     // MARK: - Recording Flow
 
+    /// Primary requires its (always-loading-at-launch) model to already be ready —
+    /// unchanged from before secondary-language support existed. Secondary has no
+    /// such gate: its model loads lazily, kicked off here and awaited at the
+    /// transcribe step, so a cold secondary hotkey press still starts capturing
+    /// audio immediately instead of losing the first words spoken (see class doc).
     private func startRecording() {
-        guard state == .idle, isModelLoaded else { return }
+        guard state == .idle else { return }
+        if activeLanguage == .primary {
+            guard isModelLoaded else { return }
+        }
 
         transcriptionError = nil
+        cancelRequested = false
         state = .recording
         recordingStartTime = Date()
         soundFeedback.playStartSound()
 
-        let live = startLiveSessionIfEnabled()
-        fputs("[DictationEngine] Recording (live: \(live))\n", stderr)
+        if activeLanguage == .secondary {
+            // Fire-and-forget: kick off the load now so it's as far along as
+            // possible by the time the user releases the key. Errors surface at
+            // the transcribe step via ensureLoaded()'s throw, not here.
+            Task { [weak self] in
+                _ = try? await self?.secondarySlot.ensureLoaded()
+            }
+        }
+
+        // Live dictation (commit-on-pause streaming) is primary-only for now.
+        let live = activeLanguage == .primary && startLiveSessionIfEnabled()
+        fputs("[DictationEngine] Recording (live: \(live), language: \(activeLanguage))\n", stderr)
 
         do {
             try audioCapture.startRecording()
@@ -377,15 +497,22 @@ final class DictationEngine {
             return
         }
 
-        state = .processing
+        let language = activeLanguage
+        // Secondary's model may not be loaded/ready yet (lazy load kicked off in
+        // startRecording()) — that's `.loadingModel`, distinct from `.processing`
+        // (model ready, whisper actively decoding). Primary's model is already
+        // guaranteed ready by `startRecording()`'s guard, so it goes straight to
+        // `.processing` as before.
+        state = language == .secondary ? .loadingModel : .processing
 
-        let bridge = self.whisperBridge
         let prompt = Self.buildPrompt(
             base: AppSettings.shared.vocabularyPrompt,
             customTerms: AppSettings.shared.customTerms
         )
         let injector = self.textInjector
         let feedback = self.soundFeedback
+        let primaryBridge = self.whisperBridge
+        let secondarySlot = self.secondarySlot
 
         Task.detached(priority: .userInitiated) { [weak self] in
             // Wait for all enqueued typing to drain, then surface the result and go idle.
@@ -405,7 +532,29 @@ final class DictationEngine {
                 }
             }
 
-            guard let bridge else {
+            let resolvedBridge: WhisperBridge?
+            switch language {
+            case .primary:
+                resolvedBridge = primaryBridge
+            case .secondary:
+                do {
+                    resolvedBridge = try await secondarySlot.ensureLoaded()
+                } catch {
+                    fputs("[DictationEngine] Secondary model load failed: \(error)\n", stderr)
+                    await finish(transcript: nil, error: "Couldn't load secondary language model: \(error.localizedDescription)")
+                    return
+                }
+                // A cancel that arrived while still loading has no bridge to target —
+                // honor it now instead of transcribing a recording the user aborted.
+                let wasCancelled = await MainActor.run { [weak self] in self?.cancelRequested ?? false }
+                if wasCancelled {
+                    fputs("[DictationEngine] Secondary recording cancelled during model load.\n", stderr)
+                    await finish(transcript: nil, error: nil)
+                    return
+                }
+            }
+
+            guard let resolvedBridge else {
                 await finish(transcript: nil, error: nil)
                 return
             }
@@ -421,7 +570,7 @@ final class DictationEngine {
             // happens-after all writes — so @unchecked Sendable is sound.
             let collected = TranscriptCollector()
             do {
-                _ = try await bridge.transcribe(audioBuffer: audioBuffer, prompt: prompt) { segment in
+                _ = try await resolvedBridge.transcribe(audioBuffer: audioBuffer, prompt: prompt) { segment in
                     let corrected = TextCorrector.shared.correct(segment)
                     // Never log transcribed content — it's the user's private dictation.
                     injector.type(text: collected.joinAndAppend(corrected))
@@ -646,6 +795,18 @@ final class DictationEngine {
         teardownLiveSession()
         whisperBridge?.shutdownAndFree()
         whisperBridge = nil
+        // Same at-exit Metal-assert concern applies to the secondary bridge, if one
+        // is loaded. `unload()` already calls `shutdownAndFree()` via the closure
+        // passed to `secondarySlot`'s initializer. `unload()` is an actor method —
+        // this handler can't await it (NSApplication's terminate path is
+        // synchronous), so it's dispatched fire-and-forget. Best-effort: unlike the
+        // primary bridge (freed synchronously just above), a secondary context that
+        // doesn't finish freeing before exit() risks the same Metal assert this
+        // whole method exists to avoid — acceptable here since the secondary path is
+        // the less-common case and losing this race only affects debug/CI hygiene,
+        // not user-visible behavior.
+        let secondary = secondarySlot
+        Task { await secondary.unload() }
         fputs("[DictationEngine] Whisper context freed\n", stderr)
     }
 

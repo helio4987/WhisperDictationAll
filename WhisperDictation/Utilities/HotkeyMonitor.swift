@@ -10,8 +10,13 @@ final class HotkeyMonitor {
     private let onKeyUp: () -> Void
     private let lock = os_unfair_lock_t.allocate(capacity: 1)
 
+    /// Reads the watched key code live (not captured once) so a Settings change
+    /// takes effect without recreating the monitor. Defaults to the primary hotkey
+    /// for source compatibility with existing call sites; a second `HotkeyMonitor`
+    /// instance (secondary-language dictation) passes `keyCodeProvider:` instead.
+    private let keyCodeProvider: () -> Int
     private var monitoredKeyCode: CGKeyCode {
-        CGKeyCode(AppSettings.shared.hotkeyKeyCode)
+        CGKeyCode(keyCodeProvider())
     }
 
     private var isModifierKey: Bool {
@@ -20,9 +25,14 @@ final class HotkeyMonitor {
 
     private var isKeyHeld = false
 
-    init(onKeyDown: @escaping () -> Void, onKeyUp: @escaping () -> Void) {
+    init(
+        onKeyDown: @escaping () -> Void,
+        onKeyUp: @escaping () -> Void,
+        keyCodeProvider: @escaping () -> Int = { AppSettings.shared.hotkeyKeyCode }
+    ) {
         self.onKeyDown = onKeyDown
         self.onKeyUp = onKeyUp
+        self.keyCodeProvider = keyCodeProvider
         lock.initialize(to: os_unfair_lock())
     }
 

@@ -150,6 +150,118 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(terms is [String]) // type check — always passes, validates the property exists
     }
 
+    // MARK: - Secondary language settings
+
+    func testSecondaryHotkeyKeyCodeDefaultAndRoundTrip() {
+        let settings = AppSettings.shared
+        let original = settings.secondaryHotkeyKeyCode
+        defer { settings.secondaryHotkeyKeyCode = original }
+
+        settings.secondaryHotkeyKeyCode = 99
+        XCTAssertEqual(settings.secondaryHotkeyKeyCode, 99)
+    }
+
+    func testSecondaryHotkeyDefaultsDistinctFromPrimaryDefault() {
+        // Fresh keys (no prior value written) must not collide, so both hotkeys
+        // work out of the box: primary defaults to right Option (61), secondary
+        // to left Option (58).
+        let secondaryKey = "secondaryHotkeyKeyCode"
+        let primaryKey = "hotkeyKeyCode"
+        let savedSecondary = UserDefaults.standard.object(forKey: secondaryKey)
+        let savedPrimary = UserDefaults.standard.object(forKey: primaryKey)
+        defer {
+            if let savedSecondary { UserDefaults.standard.set(savedSecondary, forKey: secondaryKey) }
+            else { UserDefaults.standard.removeObject(forKey: secondaryKey) }
+            if let savedPrimary { UserDefaults.standard.set(savedPrimary, forKey: primaryKey) }
+            else { UserDefaults.standard.removeObject(forKey: primaryKey) }
+        }
+        UserDefaults.standard.removeObject(forKey: secondaryKey)
+        UserDefaults.standard.removeObject(forKey: primaryKey)
+
+        XCTAssertEqual(AppSettings.shared.hotkeyKeyCode, 61)
+        XCTAssertEqual(AppSettings.shared.secondaryHotkeyKeyCode, 58)
+        XCTAssertNotEqual(AppSettings.shared.hotkeyKeyCode, AppSettings.shared.secondaryHotkeyKeyCode)
+    }
+
+    func testSecondaryLanguageCodeDefaultAndRoundTrip() {
+        let settings = AppSettings.shared
+        let original = settings.secondaryLanguageCode
+        defer { settings.secondaryLanguageCode = original }
+
+        XCTAssertFalse(settings.secondaryLanguageCode.isEmpty)
+        settings.secondaryLanguageCode = "es"
+        XCTAssertEqual(settings.secondaryLanguageCode, "es")
+    }
+
+    func testSecondaryModelSelectionFallsBackForUnknownOrEnglishOnlyValue() {
+        let key = "secondaryModelSelection"
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        // Unknown id -> default
+        UserDefaults.standard.set("totally-bogus-xyz", forKey: key)
+        XCTAssertEqual(AppSettings.shared.secondaryModelSelection, "small")
+
+        // English-only id (not multilingual) must NOT be accepted for the
+        // secondary slot, even though it's a real catalog id.
+        UserDefaults.standard.set("small.en", forKey: key)
+        XCTAssertEqual(AppSettings.shared.secondaryModelSelection, "small")
+
+        // Known multilingual id -> preserved
+        UserDefaults.standard.set("base", forKey: key)
+        XCTAssertEqual(AppSettings.shared.secondaryModelSelection, "base")
+    }
+
+    func testPrimaryIdleTimeoutDefaultsToNeverUnload() {
+        let key = "primaryIdleTimeoutMinutes"
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        UserDefaults.standard.removeObject(forKey: key)
+        XCTAssertEqual(AppSettings.shared.primaryIdleTimeoutMinutes, 0)
+    }
+
+    func testSecondaryIdleTimeoutDefaultsToTenMinutes() {
+        let key = "secondaryIdleTimeoutMinutes"
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        UserDefaults.standard.removeObject(forKey: key)
+        XCTAssertEqual(AppSettings.shared.secondaryIdleTimeoutMinutes, 10)
+    }
+
+    func testIdleTimeoutMinutesClampsNegativeToZero() {
+        let settings = AppSettings.shared
+        let originalPrimary = settings.primaryIdleTimeoutMinutes
+        let originalSecondary = settings.secondaryIdleTimeoutMinutes
+        defer {
+            settings.primaryIdleTimeoutMinutes = originalPrimary
+            settings.secondaryIdleTimeoutMinutes = originalSecondary
+        }
+
+        settings.primaryIdleTimeoutMinutes = -5
+        XCTAssertEqual(settings.primaryIdleTimeoutMinutes, 0)
+
+        settings.secondaryIdleTimeoutMinutes = -1
+        XCTAssertEqual(settings.secondaryIdleTimeoutMinutes, 0)
+    }
+
+    func testIdleTimeoutMinutesZeroMeansNeverRoundTrips() {
+        let settings = AppSettings.shared
+        let original = settings.secondaryIdleTimeoutMinutes
+        defer { settings.secondaryIdleTimeoutMinutes = original }
+
+        settings.secondaryIdleTimeoutMinutes = 0
+        XCTAssertEqual(settings.secondaryIdleTimeoutMinutes, 0)
+    }
+
     func testAddAndRemoveCustomTerm() {
         let settings = AppSettings.shared
         let original = settings.customTerms
@@ -204,7 +316,7 @@ final class DictationStateTests: XCTestCase {
 
 final class ModelManagerTests: XCTestCase {
     func testModelInfoCount() {
-        XCTAssertEqual(ModelManager.ModelInfo.all.count, 6)
+        XCTAssertEqual(ModelManager.ModelInfo.all.count, 12)
     }
 
     func testRecommendedModelsCount() {
@@ -214,6 +326,53 @@ final class ModelManagerTests: XCTestCase {
     func testQuantizedModelsAreRecommended() {
         for model in ModelManager.ModelInfo.recommended {
             XCTAssertTrue(model.isQuantized, "\(model.name) should be quantized")
+        }
+    }
+
+    // MARK: Multilingual catalog (secondary-language dictation)
+
+    func testMultilingualModelsExist() {
+        let names = ModelManager.ModelInfo.all.map(\.name)
+        XCTAssertTrue(names.contains("Base (Multilingual)"))
+        XCTAssertTrue(names.contains("Small (Multilingual)"))
+        XCTAssertTrue(names.contains("Medium (Multilingual)"))
+        XCTAssertTrue(names.contains("Base Q5 (Multilingual)"))
+        XCTAssertTrue(names.contains("Small Q5 (Multilingual)"))
+        XCTAssertTrue(names.contains("Medium Q5 (Multilingual)"))
+    }
+
+    func testIsMultilingualFlagMatchesCatalogSplit() {
+        for model in ModelManager.ModelInfo.all {
+            let expectsMultilingual = !model.fileName.contains(".en")
+            XCTAssertEqual(
+                model.isMultilingual, expectsMultilingual,
+                "\(model.fileName) isMultilingual should be \(expectsMultilingual)"
+            )
+        }
+    }
+
+    func testMultilingualSettingsIdDistinctFromEnglishOnly() {
+        // "ggml-small.bin" -> "small" (multilingual) must NOT collide with
+        // "ggml-small.en.bin" -> "small.en" (English-only).
+        XCTAssertEqual(ModelManager.ModelInfo.smallMultilingual.settingsId, "small")
+        XCTAssertEqual(ModelManager.ModelInfo.smallEn.settingsId, "small.en")
+        XCTAssertNotEqual(
+            ModelManager.ModelInfo.smallMultilingual.settingsId,
+            ModelManager.ModelInfo.smallEn.settingsId
+        )
+
+        XCTAssertEqual(ModelManager.ModelInfo.baseMultilingual.settingsId, "base")
+        XCTAssertEqual(ModelManager.ModelInfo.mediumMultilingualQ5.settingsId, "medium-q5_0")
+    }
+
+    func testRecommendedMultilingualModelsCount() {
+        XCTAssertEqual(ModelManager.ModelInfo.recommendedMultilingual.count, 3)
+    }
+
+    func testRecommendedMultilingualModelsAreQuantizedAndMultilingual() {
+        for model in ModelManager.ModelInfo.recommendedMultilingual {
+            XCTAssertTrue(model.isQuantized, "\(model.name) should be quantized")
+            XCTAssertTrue(model.isMultilingual, "\(model.name) should be multilingual")
         }
     }
 
@@ -566,6 +725,7 @@ final class DictationEngineTests: XCTestCase {
     func testPushToTalkKeyDownCancelsOnlyWhileTranscribing() {
         XCTAssertEqual(DictationEngine.keyDownAction(mode: .pushToTalk, state: .idle), .startRecording)
         XCTAssertEqual(DictationEngine.keyDownAction(mode: .pushToTalk, state: .recording), .startRecording)
+        XCTAssertEqual(DictationEngine.keyDownAction(mode: .pushToTalk, state: .loadingModel), .cancelTranscription)
         XCTAssertEqual(DictationEngine.keyDownAction(mode: .pushToTalk, state: .processing), .cancelTranscription)
         XCTAssertEqual(DictationEngine.keyDownAction(mode: .pushToTalk, state: .typing), .cancelTranscription)
     }
@@ -575,7 +735,7 @@ final class DictationEngineTests: XCTestCase {
     /// 5-minute cap auto-stopped a long recording). Everything goes through the
     /// deliberate hold.
     func testToggleKeyDownNeverCancelsDirectly() {
-        for state in [DictationState.idle, .recording, .processing, .typing] {
+        for state in [DictationState.idle, .recording, .loadingModel, .processing, .typing] {
             XCTAssertEqual(
                 DictationEngine.keyDownAction(mode: .toggle, state: state),
                 .scheduleToggle,
@@ -589,6 +749,7 @@ final class DictationEngineTests: XCTestCase {
     func testToggleHoldActionPerState() {
         XCTAssertEqual(DictationEngine.toggleHoldAction(state: .idle), .startRecording)
         XCTAssertEqual(DictationEngine.toggleHoldAction(state: .recording), .stopAndTranscribe)
+        XCTAssertEqual(DictationEngine.toggleHoldAction(state: .loadingModel), .cancelTranscription)
         XCTAssertEqual(DictationEngine.toggleHoldAction(state: .processing), .cancelTranscription)
         XCTAssertEqual(DictationEngine.toggleHoldAction(state: .typing), .cancelTranscription)
     }
@@ -675,6 +836,41 @@ final class WhisperBridgeTests: XCTestCase {
             XCTAssertTrue(error is WhisperError)
             XCTAssertTrue(error.localizedDescription.contains("/nonexistent/model.bin"))
         }
+    }
+
+    // MARK: - Language parameter (secondary-language dictation)
+
+    /// Default language remains "en" so existing call sites (primary bridge)
+    /// compile and behave unchanged without passing `language:` explicitly.
+    /// Verified against the invalid-path failure path since constructing a real
+    /// bridge requires a downloaded model — the language is stored before the
+    /// model load is attempted, so this still exercises the parameter default.
+    func testInvalidModelPathThrowsWithDefaultLanguage() {
+        XCTAssertThrowsError(try WhisperBridge(modelPath: "/nonexistent/model.bin"))
+    }
+
+    func testInvalidModelPathThrowsWithExplicitLanguage() {
+        XCTAssertThrowsError(try WhisperBridge(modelPath: "/nonexistent/model.bin", language: "pt")) { error in
+            XCTAssertTrue(error is WhisperError)
+        }
+    }
+
+    /// When a model IS available (small.en, downloaded by `make model` / CI setup),
+    /// confirm the bridge stores the language it was constructed with.
+    func testBridgeStoresConfiguredLanguage() throws {
+        guard let modelPath = ModelManager.shared.activeModelPath() else {
+            throw XCTSkip("No model downloaded in this environment — skipping load-dependent test")
+        }
+        let bridge = try WhisperBridge(modelPath: modelPath, language: "en")
+        XCTAssertEqual(bridge.language, "en")
+    }
+
+    func testBridgeDefaultsToEnglishWhenLanguageOmitted() throws {
+        guard let modelPath = ModelManager.shared.activeModelPath() else {
+            throw XCTSkip("No model downloaded in this environment — skipping load-dependent test")
+        }
+        let bridge = try WhisperBridge(modelPath: modelPath)
+        XCTAssertEqual(bridge.language, "en")
     }
 
     /// transcribe() now surfaces inference failures rather than returning "".

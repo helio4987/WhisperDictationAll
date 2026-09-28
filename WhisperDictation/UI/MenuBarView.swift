@@ -173,6 +173,7 @@ struct MenuBarView: View {
         switch engine.state {
         case .idle: "waveform"
         case .recording: "mic.fill"
+        case .loadingModel: "arrow.down.circle.dotted"
         case .processing: "brain.head.profile.fill"
         case .typing: "text.cursor"
         }
@@ -182,6 +183,7 @@ struct MenuBarView: View {
         switch engine.state {
         case .idle: engine.isModelLoaded ? "Ready — hold \(hotkeyLabel) to dictate" : "Loading model..."
         case .recording: "Listening..."
+        case .loadingModel: "Loading language model..."
         case .processing: "Transcribing..."
         case .typing: "Typing..."
         }
@@ -191,6 +193,7 @@ struct MenuBarView: View {
         switch engine.state {
         case .idle: engine.isModelLoaded ? .green : .orange
         case .recording: .red
+        case .loadingModel: .cyan
         case .processing: .orange
         case .typing: .blue
         }
@@ -200,6 +203,7 @@ struct MenuBarView: View {
         let colors: [Color] = switch engine.state {
         case .idle: [.green.opacity(0.8), .green.opacity(0.5)]
         case .recording: [.red.opacity(0.9), .red.opacity(0.6)]
+        case .loadingModel: [.cyan.opacity(0.8), .cyan.opacity(0.5)]
         case .processing: [.orange.opacity(0.8), .orange.opacity(0.5)]
         case .typing: [.blue.opacity(0.8), .blue.opacity(0.5)]
         }

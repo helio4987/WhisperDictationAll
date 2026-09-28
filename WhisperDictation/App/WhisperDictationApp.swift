@@ -83,6 +83,11 @@ struct MenuBarIcon: View {
                 Image(systemName: "mic.circle.fill")
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(.white, .red)
+            case .loadingModel:
+                Image(systemName: "arrow.down.circle.dotted")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.cyan)
+                    .symbolEffect(.pulse, options: .repeating)
             case .processing:
                 Image(systemName: "brain.head.profile.fill")
                     .symbolRenderingMode(.palette)
