@@ -14,6 +14,7 @@ struct SettingsView: View {
     enum SettingsSection: String, CaseIterable, Identifiable {
         case general = "General"
         case model = "Model"
+        case languages = "Languages"
         case vocabulary = "Vocabulary"
         case permissions = "Permissions"
 
@@ -23,6 +24,7 @@ struct SettingsView: View {
             switch self {
             case .general: "gearshape.fill"
             case .model: "brain.head.profile.fill"
+            case .languages: "globe"
             case .vocabulary: "text.book.closed.fill"
             case .permissions: "lock.shield.fill"
             }
@@ -101,6 +103,8 @@ struct SettingsView: View {
                     GeneralSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
                 case .model:
                     ModelSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
+                case .languages:
+                    LanguagesSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
                 case .vocabulary:
                     VocabularySection(settings: settings, colorScheme: colorScheme)
                 case .permissions:
@@ -222,6 +226,11 @@ private struct GeneralSection: View {
                 )
                 HotkeyRecorder(keyCode: $settings.hotkeyKeyCode, colorScheme: colorScheme)
 
+                IdleTimeoutControl(
+                    label: "Unload model when idle",
+                    minutes: $settings.primaryIdleTimeoutMinutes
+                )
+
                 Picker("Mode", selection: $settings.hotkeyMode) {
                     Text("Push-to-talk").tag(AppSettings.HotkeyMode.pushToTalk)
                     Text("Toggle — easier on the wrists").tag(AppSettings.HotkeyMode.toggle)
@@ -334,6 +343,212 @@ private struct GeneralSection: View {
             return "A model download failed — retry from the Models section. Live dictation stays off until the voice-activity model is downloaded."
         }
         return "Requires the voice-activity model (Models section). Live dictation is off until it's downloaded."
+    }
+}
+
+// MARK: - Idle Timeout Control
+
+/// Shared minutes-until-auto-unload control for both the primary (General) and
+/// secondary (Languages) hotkey cards. 0 means "never unload" — surfaced as its own
+/// label rather than a bare "0" so the meaning is unambiguous.
+private struct IdleTimeoutControl: View {
+    let label: String
+    @Binding var minutes: Double
+
+    private static let presets: [Double] = [0, 5, 10, 15, 30, 60]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                    .font(.system(size: 13))
+                Spacer()
+                Text(minutes == 0 ? "Never" : "\(Int(minutes)) min")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Picker("", selection: $minutes) {
+                ForEach(Self.presets, id: \.self) { value in
+                    Text(value == 0 ? "Never" : "\(Int(value))m").tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
+        .padding(.top, 4)
+    }
+}
+
+// MARK: - Languages Section
+
+private struct LanguagesSection: View {
+    @ObservedObject var settings: AppSettings
+    @ObservedObject var modelManager: ModelManager
+    let engine: DictationEngine
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        VStack(spacing: 14) {
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader(
+                    "Secondary Hotkey",
+                    subtitle: "Hold to dictate in a second language — push-to-talk only"
+                )
+                HotkeyRecorder(keyCode: $settings.secondaryHotkeyKeyCode, colorScheme: colorScheme)
+                IdleTimeoutControl(
+                    label: "Unload model when idle",
+                    minutes: $settings.secondaryIdleTimeoutMinutes
+                )
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader("Language", subtitle: "Language to transcribe with the secondary hotkey")
+                LanguagePicker(selectedCode: $settings.secondaryLanguageCode, colorScheme: colorScheme)
+            }
+
+            CardHeader("Secondary Model (Multilingual)", subtitle: "Recommended (Quantized)")
+            ForEach(ModelManager.ModelInfo.recommendedMultilingual) { model in
+                secondaryModelCard(model)
+            }
+
+            DisclosureGroup {
+                VStack(spacing: 10) {
+                    ForEach([ModelManager.ModelInfo.baseMultilingual, .smallMultilingual, .mediumMultilingual]) { model in
+                        secondaryModelCard(model)
+                    }
+                }
+                .padding(.top, 8)
+            } label: {
+                Text("Full Precision Models")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            if let error = modelManager.downloadError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(error)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Model card for the secondary/multilingual catalog. Structurally the same as
+    /// `ModelSection.modelCard`, but "Activate" writes `secondaryModelSelection`
+    /// instead of `selectedModel`, and there's no `engine.reloadModel()` call — the
+    /// secondary `LanguageModelSlot` picks up the new selection lazily on its next
+    /// load (see `LanguageModelSlot`/`ModelManager.secondaryModelPath()`), it isn't
+    /// eagerly reloaded like the always-loaded primary model.
+    @ViewBuilder
+    private func secondaryModelCard(_ model: ModelManager.ModelInfo) -> some View {
+        let isSelected = settings.secondaryModelSelection == model.settingsId
+        let isDownloaded = modelManager.isModelDownloaded(model)
+
+        SettingsCard(colorScheme: colorScheme) {
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(tierGradient(for: model))
+                        .frame(width: 36, height: 36)
+                    Text(tierEmoji(for: model))
+                        .font(.system(size: 16))
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(model.name)
+                            .font(.system(size: 13, weight: .semibold))
+                        if model.isQuantized {
+                            Text("Q5")
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(0.3)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(.orange.opacity(0.15)))
+                                .foregroundStyle(.orange)
+                        }
+                        if isSelected {
+                            Text("ACTIVE")
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(0.5)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(.green.opacity(0.15)))
+                                .foregroundStyle(.green)
+                        }
+                    }
+                    HStack(spacing: 12) {
+                        Label(model.size, systemImage: "internaldrive")
+                        Label(model.speed, systemImage: "bolt.fill")
+                        Label(model.accuracy, systemImage: "target")
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isDownloaded {
+                    if !isSelected {
+                        Button("Activate") {
+                            settings.secondaryModelSelection = model.settingsId
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .tint(.blue)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.system(size: 18))
+                    }
+                } else if modelManager.isDownloading(model) {
+                    downloadingControls(for: model)
+                } else {
+                    Button("Download") {
+                        modelManager.startDownload(model)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func downloadingControls(for model: ModelManager.ModelInfo) -> some View {
+        HStack(spacing: 8) {
+            ProgressView(value: modelManager.downloadProgress(for: model) ?? 0)
+                .frame(width: 60)
+            Button {
+                modelManager.cancelDownload(name: model.fileName)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Cancel download")
+        }
+    }
+
+    private func tierGradient(for model: ModelManager.ModelInfo) -> LinearGradient {
+        switch model.fileName {
+        case let f where f.contains("base"): return LinearGradient(colors: [.green.opacity(0.7), .green.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        case let f where f.contains("small"): return LinearGradient(colors: [.blue.opacity(0.7), .blue.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        default: return LinearGradient(colors: [.purple.opacity(0.7), .purple.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+    }
+
+    private func tierEmoji(for model: ModelManager.ModelInfo) -> String {
+        switch model.fileName {
+        case let f where f.contains("base"): return "⚡"
+        case let f where f.contains("small"): return "🎯"
+        default: return "🧠"
+        }
     }
 }
 
