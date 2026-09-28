@@ -17,13 +17,16 @@ SWIFT_FILES := \
 	WhisperDictation/Engine/TextInjector.swift \
 	WhisperDictation/Engine/SoundFeedback.swift \
 	WhisperDictation/Engine/ModelManager.swift \
+	WhisperDictation/Engine/LanguageModelSlot.swift \
 	WhisperDictation/Engine/TextCorrector.swift \
 	WhisperDictation/Engine/VADSegmenter.swift \
 	WhisperDictation/Utilities/HotkeyMonitor.swift \
 	WhisperDictation/Utilities/PermissionManager.swift \
 	WhisperDictation/Utilities/LaunchAtLoginHelper.swift \
 	WhisperDictation/Utilities/AudioDeviceManager.swift \
+	WhisperDictation/Utilities/WhisperLanguages.swift \
 	WhisperDictation/Engine/DictationEngine.swift \
+	WhisperDictation/UI/LanguagePicker.swift \
 	WhisperDictation/UI/MenuBarView.swift \
 	WhisperDictation/UI/SettingsView.swift \
 	WhisperDictation/UI/OnboardingView.swift \
