@@ -14,7 +14,7 @@ struct SettingsView: View {
     enum SettingsSection: String, CaseIterable, Identifiable {
         case general = "General"
         case model = "Model"
-        case languages = "Languages"
+        case secondaryLanguage = "Secondary Language"
         case vocabulary = "Vocabulary"
         case permissions = "Permissions"
 
@@ -24,7 +24,7 @@ struct SettingsView: View {
             switch self {
             case .general: "gearshape.fill"
             case .model: "brain.head.profile.fill"
-            case .languages: "globe"
+            case .secondaryLanguage: "globe"
             case .vocabulary: "text.book.closed.fill"
             case .permissions: "lock.shield.fill"
             }
@@ -37,7 +37,7 @@ struct SettingsView: View {
             Divider()
             detailPane
         }
-        .frame(width: 620, height: 460)
+        .frame(minWidth: 560, minHeight: 400)
         .background(colorScheme == .dark ? Color(.windowBackgroundColor) : Color(.controlBackgroundColor).opacity(0.3))
     }
 
@@ -103,7 +103,7 @@ struct SettingsView: View {
                     GeneralSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
                 case .model:
                     ModelSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
-                case .languages:
+                case .secondaryLanguage:
                     LanguagesSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
                 case .vocabulary:
                     VocabularySection(settings: settings, colorScheme: colorScheme)
@@ -380,7 +380,7 @@ private struct IdleTimeoutControl: View {
     }
 }
 
-// MARK: - Languages Section
+// MARK: - Secondary Language Section
 
 private struct LanguagesSection: View {
     @ObservedObject var settings: AppSettings
@@ -902,7 +902,7 @@ private struct VocabularySection: View {
                 CustomTermsEditor(settings: settings, colorScheme: colorScheme)
             }
 
-            // Developer Vocabulary
+            // Developer Vocabulary (primary/English)
             SettingsCard(colorScheme: colorScheme) {
                 CardHeader("Developer Vocabulary", subtitle: "Bias Whisper toward recognizing these terms")
                 TextEditor(text: $settings.vocabularyPrompt)
@@ -926,6 +926,49 @@ private struct VocabularySection: View {
                     Spacer()
                     Button("Reset") {
                         settings.vocabularyPrompt = AppSettings.defaultVocabularyPrompt
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+
+            // Secondary Language Vocabulary
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader(
+                    "Secondary Language Vocabulary",
+                    subtitle: "Bias the secondary hotkey's language toward this vocabulary and spelling"
+                )
+                TextEditor(text: $settings.secondaryVocabularyPrompt)
+                    .font(.system(size: 12, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 180)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color(.textBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08), lineWidth: 0.5)
+                    )
+
+                Toggle("Include all terms from English", isOn: $settings.includeEnglishTermsInSecondary)
+                    .font(.system(size: 13))
+                Text("Prefixes this prompt with the Developer Vocabulary above — useful if you mix English technical terms into secondary-language dictation.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Text("For European Portuguese, the default is pre-filled with PT-PT spellings to counter Whisper's Brazilian-leaning bias.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Reset") {
+                        settings.secondaryVocabularyPrompt = AppSettings.defaultSecondaryVocabularyPrompt(
+                            forLanguageCode: settings.secondaryLanguageCode
+                        )
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
