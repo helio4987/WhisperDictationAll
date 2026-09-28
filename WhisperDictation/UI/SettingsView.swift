@@ -67,10 +67,13 @@ struct SettingsView: View {
             Spacer()
 
             HStack(spacing: 6) {
+                // Primary loads lazily now (same as secondary) — "Unloaded" here
+                // just means it isn't currently resident, not that anything is
+                // stuck or broken. It loads automatically on the next hotkey press.
                 Circle()
-                    .fill(engine.isModelLoaded ? .green : .orange)
+                    .fill(engine.isModelLoaded ? .green : .secondary)
                     .frame(width: 7, height: 7)
-                Text(engine.isModelLoaded ? "Ready" : "Loading...")
+                Text(engine.isModelLoaded ? "Loaded" : "Unloaded")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()

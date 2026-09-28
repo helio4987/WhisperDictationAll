@@ -51,15 +51,19 @@ actor LanguageModelSlot<Resource> {
     /// manually-fired scheduler.
     private let scheduleIdleUnload: (_ afterSeconds: TimeInterval, _ fire: @escaping () -> Void) -> IdleTimerHandle
 
-    /// Fired on every `loadState` transition, with the new state — lets a UI layer
-    /// (menu bar) mirror this actor's state into an `@Observable`/main-thread
-    /// property without polling. Not part of the actor's synchronization: it's a
+    /// Fired on every `loadState` transition, with the new state and (when
+    /// `.ready`) the resource itself — lets a UI layer (menu bar) mirror this
+    /// actor's state into an `@Observable`/main-thread property without polling,
+    /// AND lets a caller cache a synchronously-readable reference to the current
+    /// resource for a fast path that can't afford to `await` into the actor (see
+    /// `DictationEngine`'s live-dictation gating). `resource` is nil for every
+    /// state except `.ready`. Not part of the actor's synchronization: it's a
     /// notification side-channel, invoked from within the actor after each
     /// transition, so the closure itself must not touch actor-isolated state.
     /// Settable after construction (`setOnStateChange`) since the callback
     /// typically needs to capture the owning object, which doesn't exist yet
     /// while this slot's own `init` argument list is being evaluated.
-    private var onStateChange: (@Sendable (LoadState) -> Void)?
+    private var onStateChange: (@Sendable (LoadState, Resource?) -> Void)?
 
     private var loadingTask: Task<Resource, Error>?
     private var idleTimerHandle: IdleTimerHandle?
@@ -85,7 +89,7 @@ actor LanguageModelSlot<Resource> {
     /// needed because the callback typically captures the owning object (e.g.
     /// `DictationEngine`), which can't exist yet while this actor's own `init`
     /// argument list is being evaluated in that object's own property initializer.
-    func setOnStateChange(_ callback: (@Sendable (LoadState) -> Void)?) {
+    func setOnStateChange(_ callback: (@Sendable (LoadState, Resource?) -> Void)?) {
         onStateChange = callback
     }
 
@@ -94,7 +98,7 @@ actor LanguageModelSlot<Resource> {
     /// file goes through this rather than `loadState = ...` directly).
     private func setLoadState(_ newState: LoadState) {
         loadState = newState
-        onStateChange?(newState)
+        onStateChange?(newState, newState == .ready ? resource : nil)
     }
 
     /// Default production scheduler: a one-shot `Timer` on the main run loop.

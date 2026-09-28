@@ -27,8 +27,25 @@ enum ActiveLanguage {
 final class DictationEngine {
     private(set) var state: DictationState = .idle
     private(set) var lastTranscription: String = ""
-    private(set) var isModelLoaded: Bool = false
-    private(set) var modelLoadError: String?
+    /// Mirrors `primarySlot`'s actor-isolated `loadState` onto the main thread,
+    /// same pattern as `secondaryModelLoadState`. `isModelLoaded`/`modelLoadError`
+    /// below are computed from this for external API compatibility.
+    private(set) var primaryModelLoadState: LanguageModelSlot<WhisperBridge>.LoadState = .unloaded
+    var isModelLoaded: Bool { primaryModelLoadState == .ready }
+    var modelLoadError: String? {
+        if case .failed(let message) = primaryModelLoadState { return message }
+        return nil
+    }
+
+    /// Synchronously-readable cache of the primary bridge, mirrored from
+    /// `primarySlot` via its `onStateChange` callback (nil except while
+    /// `primaryModelLoadState == .ready`). Exists ONLY for
+    /// `startLiveSessionIfEnabled()`, which runs synchronously inside
+    /// `startRecording()` and can't `await` into the actor without delaying the
+    /// start of audio capture. Every other primary code path goes through
+    /// `primarySlot.ensureLoaded()` properly (which also resets the idle timer —
+    /// this cache does not, and must never be used as a substitute for it).
+    private var cachedPrimaryBridge: WhisperBridge?
 
     /// Last transcription/recording failure surfaced to the user (inference failure,
     /// audio input configuration change). Cleared when a new recording starts and on
@@ -45,11 +62,31 @@ final class DictationEngine {
     /// transition — not polled.
     private(set) var secondaryModelLoadState: LanguageModelSlot<WhisperBridge>.LoadState = .unloaded
 
-    private var whisperBridge: WhisperBridge?
     private let audioCapture = AudioCapture()
     private let textInjector = TextInjector()
     private let soundFeedback = SoundFeedback()
     private var hotkeyMonitor: HotkeyMonitor?
+
+    /// Primary (English) dictation, lazily loaded/auto-unloaded via
+    /// `LanguageModelSlot` — mirrors `secondarySlot` exactly. Nothing loads at
+    /// launch; the first primary hotkey press triggers the same
+    /// startRecording()-kicks-off-load/transcribe-step-awaits-it flow secondary
+    /// already used, and `primaryIdleTimeoutMinutes` (previously an inert
+    /// setting) now actually unloads the model after that many idle minutes.
+    private let primarySlot = LanguageModelSlot<WhisperBridge>(
+        idleTimeoutMinutes: { AppSettings.shared.primaryIdleTimeoutMinutes },
+        load: {
+            guard let modelPath = ModelManager.shared.activeModelPath() else {
+                throw WhisperError.modelLoadFailed("No model found. Open Settings to download a model.")
+            }
+            let bridge = try WhisperBridge(modelPath: modelPath)
+            await bridge.warmup()
+            return bridge
+        },
+        unload: { bridge in
+            bridge.shutdownAndFree()
+        }
+    )
 
     /// Secondary-language dictation: a second hotkey, lazily loaded/auto-unloaded
     /// via `LanguageModelSlot`. Push-to-talk only (see class doc) — no toggle mode,
@@ -98,12 +135,18 @@ final class DictationEngine {
         hotkeyMonitor?.start()
         setupSecondaryHotkeyMonitor()
         secondaryHotkeyMonitor?.start()
-        loadModelAsync()
         LaunchAtLoginHelper.reconcile()
 
-        let slot = secondarySlot
+        let primary = primarySlot
+        let secondary = secondarySlot
         Task { [weak self] in
-            await slot.setOnStateChange { [weak self] newState in
+            await primary.setOnStateChange { [weak self] newState, resource in
+                Task { @MainActor in
+                    self?.primaryModelLoadState = newState
+                    self?.cachedPrimaryBridge = resource
+                }
+            }
+            await secondary.setOnStateChange { [weak self] newState, _ in
                 Task { @MainActor in
                     self?.secondaryModelLoadState = newState
                 }
@@ -153,46 +196,21 @@ final class DictationEngine {
 
     // MARK: - Model Loading
 
-    private func loadModelAsync() {
-        Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
-            do {
-                let modelPath = ModelManager.shared.activeModelPath()
-                guard let modelPath else {
-                    await MainActor.run {
-                        self.modelLoadError = "No model found. Open Settings to download a model."
-                    }
-                    return
-                }
-                let bridge = try WhisperBridge(modelPath: modelPath)
-
-                // Pre-warm GPU: JIT-compile Metal shaders with a tiny dummy inference.
-                // Async so this cooperative-pool task isn't blocked during warmup.
-                await bridge.warmup()
-
-                await MainActor.run {
-                    self.whisperBridge = bridge
-                    self.isModelLoaded = true
-                    self.modelLoadError = nil
-                }
-            } catch {
-                await MainActor.run {
-                    self.modelLoadError = "Failed to load model: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
-
     /// Set when `reloadModel()` is requested while a transcription is in flight.
     /// Consumed on the return to idle. Main-actor only.
     private var pendingModelReload = false
 
-    /// Swap the active model. If a transcription is mid-flight (`.recording` captured
-    /// no bridge yet, but `.processing`/`.typing` hold the current bridge locally and
-    /// must finish on it), nulling `whisperBridge` here would strand that task or drop
-    /// the utterance. So only reload immediately when idle; otherwise defer until the
-    /// engine returns to idle (the new selection is already persisted in AppSettings,
-    /// so the deferred reload picks it up). Called on the main actor.
+    /// Swap the active primary model. If a transcription is mid-flight, unloading
+    /// now would strand that task or drop the utterance — the `.recording` state
+    /// hasn't captured a bridge reference yet, but `.loadingModel`/`.processing`/
+    /// `.typing` did (via `ensureLoaded()`'s return value), and that reference is
+    /// used straight through to completion regardless of what happens to the slot
+    /// afterward. So only unload immediately when idle; otherwise defer until the
+    /// engine returns to idle. The new selection is already persisted in
+    /// `AppSettings.selectedModel` by the caller, so the next `ensureLoaded()` —
+    /// whenever that happens, deferred or not — picks it up via
+    /// `ModelManager.activeModelPath()` reading the (now-changed) setting live.
+    /// Called on the main actor.
     func reloadModel() {
         guard state == .idle else {
             pendingModelReload = true
@@ -203,10 +221,8 @@ final class DictationEngine {
 
     private func performModelReload() {
         pendingModelReload = false
-        isModelLoaded = false
-        modelLoadError = nil
-        whisperBridge = nil
-        loadModelAsync()
+        let slot = primarySlot
+        Task { await slot.unload() }
     }
 
     /// Transition to idle and, if a model reload was deferred while the engine was
@@ -349,13 +365,8 @@ final class DictationEngine {
             liveFlagForDrain.cancel()
         } else {
             cancelRequested = true
-            switch activeLanguage {
-            case .primary:
-                whisperBridge?.cancelTranscription()
-            case .secondary:
-                let slot = secondarySlot
-                Task { await slot.currentResource?.cancelTranscription() }
-            }
+            let slot = activeLanguage == .primary ? primarySlot : secondarySlot
+            Task { await slot.currentResource?.cancelTranscription() }
         }
     }
 
@@ -447,16 +458,13 @@ final class DictationEngine {
 
     // MARK: - Recording Flow
 
-    /// Primary requires its (always-loading-at-launch) model to already be ready —
-    /// unchanged from before secondary-language support existed. Secondary has no
-    /// such gate: its model loads lazily, kicked off here and awaited at the
-    /// transcribe step, so a cold secondary hotkey press still starts capturing
-    /// audio immediately instead of losing the first words spoken (see class doc).
+    /// Both languages load lazily, symmetrically: neither has its model loaded at
+    /// launch. A cold hotkey press starts capturing audio immediately while the
+    /// relevant `LanguageModelSlot.ensureLoaded()` kicks off in the background —
+    /// the transcribe step (`stopRecordingAndTranscribe`) awaits it — so the first
+    /// words spoken are never lost to a multi-second model load.
     private func startRecording() {
         guard state == .idle else { return }
-        if activeLanguage == .primary {
-            guard isModelLoaded else { return }
-        }
 
         transcriptionError = nil
         cancelRequested = false
@@ -464,13 +472,12 @@ final class DictationEngine {
         recordingStartTime = Date()
         soundFeedback.playStartSound()
 
-        if activeLanguage == .secondary {
-            // Fire-and-forget: kick off the load now so it's as far along as
-            // possible by the time the user releases the key. Errors surface at
-            // the transcribe step via ensureLoaded()'s throw, not here.
-            Task { [weak self] in
-                _ = try? await self?.secondarySlot.ensureLoaded()
-            }
+        // Fire-and-forget: kick off the load now so it's as far along as possible
+        // by the time the user releases the key. Errors surface at the transcribe
+        // step via ensureLoaded()'s throw, not here.
+        let slot = activeLanguage == .primary ? primarySlot : secondarySlot
+        Task {
+            _ = try? await slot.ensureLoaded()
         }
 
         // Live dictation (commit-on-pause streaming) is primary-only for now.
@@ -513,12 +520,10 @@ final class DictationEngine {
         }
 
         let language = activeLanguage
-        // Secondary's model may not be loaded/ready yet (lazy load kicked off in
-        // startRecording()) — that's `.loadingModel`, distinct from `.processing`
-        // (model ready, whisper actively decoding). Primary's model is already
-        // guaranteed ready by `startRecording()`'s guard, so it goes straight to
-        // `.processing` as before.
-        state = language == .secondary ? .loadingModel : .processing
+        // Either language's model may not be loaded/ready yet (lazy load kicked
+        // off in startRecording()) — that's `.loadingModel`, distinct from
+        // `.processing` (model ready, whisper actively decoding).
+        state = .loadingModel
 
         let promptBase = language == .secondary
             ? AppSettings.shared.effectiveSecondaryVocabularyBase
@@ -529,7 +534,7 @@ final class DictationEngine {
         )
         let injector = self.textInjector
         let feedback = self.soundFeedback
-        let primaryBridge = self.whisperBridge
+        let primarySlot = self.primarySlot
         let secondarySlot = self.secondarySlot
 
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -550,29 +555,21 @@ final class DictationEngine {
                 }
             }
 
-            let resolvedBridge: WhisperBridge?
-            switch language {
-            case .primary:
-                resolvedBridge = primaryBridge
-            case .secondary:
-                do {
-                    resolvedBridge = try await secondarySlot.ensureLoaded()
-                } catch {
-                    fputs("[DictationEngine] Secondary model load failed: \(error)\n", stderr)
-                    await finish(transcript: nil, error: "Couldn't load secondary language model: \(error.localizedDescription)")
-                    return
-                }
-                // A cancel that arrived while still loading has no bridge to target —
-                // honor it now instead of transcribing a recording the user aborted.
-                let wasCancelled = await MainActor.run { [weak self] in self?.cancelRequested ?? false }
-                if wasCancelled {
-                    fputs("[DictationEngine] Secondary recording cancelled during model load.\n", stderr)
-                    await finish(transcript: nil, error: nil)
-                    return
-                }
+            let slot = language == .primary ? primarySlot : secondarySlot
+            let resolvedBridge: WhisperBridge
+            do {
+                resolvedBridge = try await slot.ensureLoaded()
+            } catch {
+                fputs("[DictationEngine] \(language) model load failed: \(error)\n", stderr)
+                let label = language == .primary ? "primary" : "secondary language"
+                await finish(transcript: nil, error: "Couldn't load \(label) model: \(error.localizedDescription)")
+                return
             }
-
-            guard let resolvedBridge else {
+            // A cancel that arrived while still loading has no bridge to target —
+            // honor it now instead of transcribing a recording the user aborted.
+            let wasCancelled = await MainActor.run { [weak self] in self?.cancelRequested ?? false }
+            if wasCancelled {
+                fputs("[DictationEngine] \(language) recording cancelled during model load.\n", stderr)
                 await finish(transcript: nil, error: nil)
                 return
             }
@@ -652,7 +649,7 @@ final class DictationEngine {
     private func startLiveSessionIfEnabled() -> Bool {
         guard AppSettings.shared.liveDictationEnabled,
               let vadPath = ModelManager.shared.vadModelPath(),
-              let bridge = whisperBridge else { return false }
+              let bridge = cachedPrimaryBridge else { return false }
         do {
             let segmenter = try VADSegmenter(vadModelPath: vadPath)
             let sessionFlag = CancellationFlag()
@@ -694,6 +691,7 @@ final class DictationEngine {
         let injector = self.textInjector
         let feedback = self.soundFeedback
         let collected = TranscriptCollector()
+        let slot = primarySlot
 
         Task.detached(priority: .userInitiated) { [weak self] in
             var surfacedError: String?
@@ -708,6 +706,14 @@ final class DictationEngine {
                 case .residual(let s): (samples, isResidual) = (s, true)
                 }
                 guard surfacedError == nil else { continue }  // failure: drain and discard
+
+                // Re-touch the slot before every chunk so its idle timer resets
+                // for the duration of this session — a multi-minute live session
+                // must never have its model unloaded out from under `bridge`
+                // (captured once, above, and reused directly for the whole
+                // session rather than re-resolved per chunk). ensureLoaded() is
+                // a cheap no-op here since the resource is already `.ready`.
+                _ = try? await slot.ensureLoaded()
 
                 let prompt = Self.buildPrompt(
                     base: AppSettings.shared.vocabularyPrompt,
@@ -804,28 +810,34 @@ final class DictationEngine {
     /// VAD context is CPU-only (not implicated in the Metal assert); its release
     /// through teardown stays best-effort.
     private func prepareForTermination() {
-        fputs("[DictationEngine] Terminating — freeing whisper context\n", stderr)
+        fputs("[DictationEngine] Terminating — freeing whisper contexts\n", stderr)
         audioCapture.onSamples = nil
         if audioCapture.isRecording { _ = audioCapture.stopRecording() }
         // Cancel BEFORE the teardown drain so chunks committed during the drain
         // abort instead of starting fresh decodes (same rule as teardownLiveSession).
         liveSessionFlag?.cancel()
         teardownLiveSession()
-        whisperBridge?.shutdownAndFree()
-        whisperBridge = nil
-        // Same at-exit Metal-assert concern applies to the secondary bridge, if one
-        // is loaded. `unload()` already calls `shutdownAndFree()` via the closure
-        // passed to `secondarySlot`'s initializer. `unload()` is an actor method —
-        // this handler can't await it (NSApplication's terminate path is
-        // synchronous), so it's dispatched fire-and-forget. Best-effort: unlike the
-        // primary bridge (freed synchronously just above), a secondary context that
-        // doesn't finish freeing before exit() risks the same Metal assert this
-        // whole method exists to avoid — acceptable here since the secondary path is
-        // the less-common case and losing this race only affects debug/CI hygiene,
-        // not user-visible behavior.
+
+        // Both slots' `unload()` (an actor method, so only callable async) must
+        // complete before this handler returns — NSApplication's terminate path
+        // calls exit() right after, skipping Swift deinits, and ggml's at-exit
+        // Metal assert (GGML_ASSERT in ggml_metal_rsets_free) fires if either
+        // context's Metal resources are still alive when its static device
+        // registry is destroyed. `prepareForTermination()` itself is synchronous
+        // (called from a `willTerminateNotification` observer), so block on a
+        // semaphore rather than downgrading to fire-and-forget best-effort —
+        // both languages get the same deterministic guarantee the primary bridge
+        // had before secondary-language support existed.
+        let primary = primarySlot
         let secondary = secondarySlot
-        Task { await secondary.unload() }
-        fputs("[DictationEngine] Whisper context freed\n", stderr)
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+            await primary.unload()
+            await secondary.unload()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        fputs("[DictationEngine] Whisper contexts freed\n", stderr)
     }
 
     /// Full teardown for paths where the consumer must ALSO stop (start

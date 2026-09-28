@@ -118,15 +118,15 @@ struct MenuBarView: View {
         VStack(spacing: 4) {
             LanguageStatusRow(
                 label: "Primary (English)",
-                isLoaded: engine.isModelLoaded,
-                isLoading: false,
-                loadFailed: false
+                isLoaded: engine.primaryModelLoadState == .ready,
+                isLoading: engine.primaryModelLoadState == .loading,
+                loadFailed: isLoadFailed(engine.primaryModelLoadState)
             )
             LanguageStatusRow(
                 label: "Secondary (\(secondaryLanguageDisplayName))",
                 isLoaded: engine.secondaryModelLoadState == .ready,
                 isLoading: engine.secondaryModelLoadState == .loading,
-                loadFailed: isSecondaryLoadFailed
+                loadFailed: isLoadFailed(engine.secondaryModelLoadState)
             )
         }
     }
@@ -136,8 +136,8 @@ struct MenuBarView: View {
             ?? settings.secondaryLanguageCode
     }
 
-    private var isSecondaryLoadFailed: Bool {
-        if case .failed = engine.secondaryModelLoadState { return true }
+    private func isLoadFailed(_ state: LanguageModelSlot<WhisperBridge>.LoadState) -> Bool {
+        if case .failed = state { return true }
         return false
     }
 
@@ -215,7 +215,12 @@ struct MenuBarView: View {
 
     private var statusText: String {
         switch engine.state {
-        case .idle: engine.isModelLoaded ? "Ready — hold \(hotkeyLabel) to dictate" : "Loading model..."
+        // Idle always means "ready to accept a hotkey press" now, regardless of
+        // whether the primary model is currently resident — both languages load
+        // lazily on first press, same as secondary always has. Whether it's
+        // sitting loaded or unloaded is visible in the languagesSection rows below,
+        // not folded into this headline status.
+        case .idle: "Ready — hold \(hotkeyLabel) to dictate"
         case .recording: "Listening..."
         case .loadingModel: "Loading language model..."
         case .processing: "Transcribing..."
@@ -225,7 +230,7 @@ struct MenuBarView: View {
 
     private var statusDotColor: Color {
         switch engine.state {
-        case .idle: engine.isModelLoaded ? .green : .orange
+        case .idle: .green
         case .recording: .red
         case .loadingModel: .cyan
         case .processing: .orange
@@ -260,11 +265,9 @@ struct MenuBarView: View {
 // MARK: - Language Status Row
 
 /// One row per language showing whether its model is currently resident in memory.
-/// Primary always reports `isLoading: false` since it has no lazy-load path yet
-/// (it loads once at launch and stays loaded) — its dot is simply green once
-/// `isModelLoaded` flips true. Secondary genuinely cycles through all three states
-/// as it lazily loads on first use and auto-unloads after the configured idle
-/// timeout, driven by `LanguageModelSlot`.
+/// Both primary and secondary cycle through all three states symmetrically — each
+/// lazily loads on first hotkey press and auto-unloads after its own configured
+/// idle timeout, driven by its own `LanguageModelSlot`.
 private struct LanguageStatusRow: View {
     let label: String
     let isLoaded: Bool

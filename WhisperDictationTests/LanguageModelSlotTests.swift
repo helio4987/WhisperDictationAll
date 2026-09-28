@@ -243,11 +243,25 @@ final class LanguageModelSlotTests: XCTestCase {
         let scheduler = FakeScheduler()
         let observed = Box<[LanguageModelSlot<FakeResource>.LoadState]>([])
         let slot = makeSlot(idleTimeoutMinutes: 10, scheduler: scheduler)
-        await slot.setOnStateChange { state in observed.value.append(state) }
+        await slot.setOnStateChange { state, _ in observed.value.append(state) }
 
         _ = try await slot.ensureLoaded()
 
         XCTAssertEqual(observed.value, [.loading, .ready])
+    }
+
+    /// The callback also receives the resource itself, non-nil only for `.ready`.
+    func testOnStateChangePassesResourceOnlyWhenReady() async throws {
+        let scheduler = FakeScheduler()
+        let observedResources = Box<[FakeResource?]>([])
+        let slot = makeSlot(idleTimeoutMinutes: 10, scheduler: scheduler)
+        await slot.setOnStateChange { _, resource in observedResources.value.append(resource) }
+
+        _ = try await slot.ensureLoaded()
+
+        XCTAssertEqual(observedResources.value.count, 2)
+        XCTAssertNil(observedResources.value[0], "no resource while .loading")
+        XCTAssertNotNil(observedResources.value[1], "resource present at .ready")
     }
 
     func testOnStateChangeFiresFailedOnLoadError() async {
@@ -255,7 +269,7 @@ final class LanguageModelSlotTests: XCTestCase {
         let observed = Box<[LanguageModelSlot<FakeResource>.LoadState]>([])
         struct BoomError: Error {}
         let slot = makeSlot(idleTimeoutMinutes: 10, scheduler: scheduler, loadImpl: { throw BoomError() })
-        await slot.setOnStateChange { state in observed.value.append(state) }
+        await slot.setOnStateChange { state, _ in observed.value.append(state) }
 
         _ = try? await slot.ensureLoaded()
 
@@ -272,7 +286,7 @@ final class LanguageModelSlotTests: XCTestCase {
         let scheduler = FakeScheduler()
         let observed = Box<[LanguageModelSlot<FakeResource>.LoadState]>([])
         let slot = makeSlot(idleTimeoutMinutes: 10, scheduler: scheduler)
-        await slot.setOnStateChange { state in observed.value.append(state) }
+        await slot.setOnStateChange { state, _ in observed.value.append(state) }
 
         _ = try await slot.ensureLoaded()
         await slot.unload()
@@ -286,8 +300,8 @@ final class LanguageModelSlotTests: XCTestCase {
         let secondObserved = Box<Int>(0)
         let slot = makeSlot(idleTimeoutMinutes: 10, scheduler: scheduler)
 
-        await slot.setOnStateChange { _ in firstObserved.value += 1 }
-        await slot.setOnStateChange { _ in secondObserved.value += 1 }
+        await slot.setOnStateChange { _, _ in firstObserved.value += 1 }
+        await slot.setOnStateChange { _, _ in secondObserved.value += 1 }
         _ = try await slot.ensureLoaded()
 
         XCTAssertEqual(firstObserved.value, 0, "replaced callback must not fire")
