@@ -26,6 +26,12 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
         case customTerms
         case hasCompletedOnboarding
         case liveDictationEnabled
+        // Secondary language (see LanguageModelSlot, DictationEngine)
+        case secondaryLanguageCode
+        case secondaryModelSelection
+        case secondaryHotkeyKeyCode
+        case primaryIdleTimeoutMinutes
+        case secondaryIdleTimeoutMinutes
     }
 
     // MARK: - Properties
@@ -41,6 +47,15 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
             return HotkeyMode(rawValue: raw) ?? .pushToTalk
         }
         set { defaults.set(newValue.rawValue, forKey: Key.hotkeyMode.rawValue); objectWillChange.send() }
+    }
+
+    /// Hotkey dedicated to secondary-language dictation, independent of the primary
+    /// (English) hotkey above. Default: left Option (58) — distinct from the
+    /// primary's default of right Option (61) so both work out of the box without
+    /// colliding.
+    var secondaryHotkeyKeyCode: Int {
+        get { defaults.object(forKey: Key.secondaryHotkeyKeyCode.rawValue) as? Int ?? 58 }
+        set { defaults.set(newValue, forKey: Key.secondaryHotkeyKeyCode.rawValue); objectWillChange.send() }
     }
 
     /// Seconds the hotkey must be held to trigger start/stop in toggle mode.
@@ -69,6 +84,41 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
             return isKnown ? stored : "small.en"
         }
         set { defaults.set(newValue, forKey: Key.selectedModel.rawValue); objectWillChange.send() }
+    }
+
+    /// ISO-639-1-ish Whisper language code for secondary-language dictation (e.g.
+    /// "pt" for Portuguese). Defaults to "pt" — arbitrary but sane; the picker in
+    /// Settings lets the user change it before ever using the secondary hotkey.
+    var secondaryLanguageCode: String {
+        get { defaults.string(forKey: Key.secondaryLanguageCode.rawValue) ?? "pt" }
+        set { defaults.set(newValue, forKey: Key.secondaryLanguageCode.rawValue); objectWillChange.send() }
+    }
+
+    /// Multilingual model tier for secondary-language dictation. Falls back to the
+    /// default if the stored id isn't a known *multilingual* catalog entry (same
+    /// guard shape as `selectedModel`, scoped to `isMultilingual` models only so a
+    /// stale/foreign id can never select an English-only model for the secondary
+    /// slot).
+    var secondaryModelSelection: String {
+        get {
+            let stored = defaults.string(forKey: Key.secondaryModelSelection.rawValue) ?? "small"
+            let isKnown = ModelManager.ModelInfo.all.contains { $0.isMultilingual && $0.settingsId == stored }
+            return isKnown ? stored : "small"
+        }
+        set { defaults.set(newValue, forKey: Key.secondaryModelSelection.rawValue); objectWillChange.send() }
+    }
+
+    /// Minutes of no successful transcription before a language's model is
+    /// automatically unloaded from memory. 0 disables auto-unload for that
+    /// language. Clamped to non-negative on both read and write.
+    var primaryIdleTimeoutMinutes: Double {
+        get { max(0, defaults.object(forKey: Key.primaryIdleTimeoutMinutes.rawValue) as? Double ?? 0) }
+        set { defaults.set(max(0, newValue), forKey: Key.primaryIdleTimeoutMinutes.rawValue); objectWillChange.send() }
+    }
+
+    var secondaryIdleTimeoutMinutes: Double {
+        get { max(0, defaults.object(forKey: Key.secondaryIdleTimeoutMinutes.rawValue) as? Double ?? 10) }
+        set { defaults.set(max(0, newValue), forKey: Key.secondaryIdleTimeoutMinutes.rawValue); objectWillChange.send() }
     }
 
     var soundFeedbackEnabled: Bool {
