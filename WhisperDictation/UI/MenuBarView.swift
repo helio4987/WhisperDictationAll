@@ -118,12 +118,14 @@ struct MenuBarView: View {
         VStack(spacing: 4) {
             LanguageStatusRow(
                 label: "Primary (English)",
+                hotkeyLabel: hotkeyLabel,
                 isLoaded: engine.primaryModelLoadState == .ready,
                 isLoading: engine.primaryModelLoadState == .loading,
                 loadFailed: isLoadFailed(engine.primaryModelLoadState)
             )
             LanguageStatusRow(
                 label: "Secondary (\(secondaryLanguageDisplayName))",
+                hotkeyLabel: secondaryHotkeyLabel,
                 isLoaded: engine.secondaryModelLoadState == .ready,
                 isLoading: engine.secondaryModelLoadState == .loading,
                 loadFailed: isLoadFailed(engine.secondaryModelLoadState)
@@ -134,6 +136,10 @@ struct MenuBarView: View {
     private var secondaryLanguageDisplayName: String {
         WhisperLanguages.language(forCode: settings.secondaryLanguageCode)?.displayName
             ?? settings.secondaryLanguageCode
+    }
+
+    private var secondaryHotkeyLabel: String {
+        KeyCodeNames.shortLabel(for: settings.secondaryHotkeyKeyCode)
     }
 
     private func isLoadFailed(_ state: LanguageModelSlot<WhisperBridge>.LoadState) -> Bool {
@@ -215,12 +221,11 @@ struct MenuBarView: View {
 
     private var statusText: String {
         switch engine.state {
-        // Idle always means "ready to accept a hotkey press" now, regardless of
-        // whether the primary model is currently resident — both languages load
-        // lazily on first press, same as secondary always has. Whether it's
-        // sitting loaded or unloaded is visible in the languagesSection rows below,
-        // not folded into this headline status.
-        case .idle: "Ready — hold \(hotkeyLabel) to dictate"
+        // "Ready" no longer names a specific hotkey — there are two independent
+        // ones now (primary/secondary), each shown with its own key in the
+        // languagesSection rows below. This headline is just the engine's overall
+        // activity, not tied to either language.
+        case .idle: "Idle — use either hotkey to dictate"
         case .recording: "Listening..."
         case .loadingModel: "Loading language model..."
         case .processing: "Transcribing..."
@@ -270,6 +275,7 @@ struct MenuBarView: View {
 /// idle timeout, driven by its own `LanguageModelSlot`.
 private struct LanguageStatusRow: View {
     let label: String
+    let hotkeyLabel: String
     let isLoaded: Bool
     let isLoading: Bool
     let loadFailed: Bool
@@ -281,6 +287,12 @@ private struct LanguageStatusRow: View {
                 .frame(width: 6, height: 6)
             Text(label)
                 .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Text(hotkeyLabel)
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(Color.secondary.opacity(0.12)))
                 .foregroundStyle(.secondary)
             Spacer()
             Text(statusLabel)
