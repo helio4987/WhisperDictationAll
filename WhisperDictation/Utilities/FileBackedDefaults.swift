@@ -1,12 +1,13 @@
 import Foundation
 
-/// Minimal `UserDefaults`-compatible key/value store backed by a plist file at
-/// `~/.WhisperDictation/settings.plist`, instead of the standard (and much less
-/// discoverable) `~/Library/Preferences/<bundle-id>.plist` location `UserDefaults`
-/// would otherwise use. Exposes just the subset of the `UserDefaults` API
-/// `AppSettings` actually calls (`object`/`string`/`bool`/`stringArray`/`set`/
-/// `removeObject`), so `AppSettings` itself needed no changes beyond swapping
-/// which store it talks to.
+/// Minimal `UserDefaults`-compatible key/value store backed by a JSON file at
+/// `~/.WhisperDictation/settings.json`, instead of the standard (and much less
+/// discoverable, and binary/plist-formatted) `~/Library/Preferences/<bundle-id>.plist`
+/// location `UserDefaults` would otherwise use. JSON over plist for legibility and
+/// because it's a more universally standard format to hand-edit or inspect outside
+/// the app. Exposes just the subset of the `UserDefaults` API `AppSettings` actually
+/// calls (`object`/`string`/`bool`/`stringArray`/`set`/`removeObject`), so
+/// `AppSettings` itself needed no changes beyond swapping which store it talks to.
 ///
 /// Not a general-purpose `UserDefaults` replacement: no KVO, no cross-process
 /// change notifications, no `NSUbiquitousKeyValueStore` sync. This app's prior
@@ -15,27 +16,41 @@ import Foundation
 final class FileBackedDefaults: @unchecked Sendable {
     static let shared = FileBackedDefaults()
 
-    /// `~/.WhisperDictation/settings.plist`.
+    /// `~/.WhisperDictation/settings.json`.
     static var defaultFileURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".WhisperDictation", isDirectory: true)
-            .appendingPathComponent("settings.plist")
+            .appendingPathComponent("settings.json")
     }
 
     private let fileURL: URL
     private let lock = NSLock()
     private var storage: [String: Any]
 
+    /// Legacy plist location this store used before switching to JSON. Checked as
+    /// a one-time migration fallback alongside the even-older `UserDefaults`
+    /// fallback below.
+    private static var legacyPlistFileURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".WhisperDictation", isDirectory: true)
+            .appendingPathComponent("settings.plist")
+    }
+
     init(fileURL: URL = FileBackedDefaults.defaultFileURL) {
         self.fileURL = fileURL
         if FileManager.default.fileExists(atPath: fileURL.path) {
-            self.storage = Self.load(from: fileURL)
+            self.storage = Self.loadJSON(from: fileURL)
+        } else if FileManager.default.fileExists(atPath: Self.legacyPlistFileURL.path) {
+            // One-time migration from this store's own prior plist format.
+            self.storage = Self.loadPlist(from: Self.legacyPlistFileURL)
+            if !self.storage.isEmpty { save() }
         } else {
-            // First launch after the storage migration: carry over whatever was
-            // previously in UserDefaults.standard's `com.sampop.WhisperDictation`
-            // domain (the only domain this app ever wrote to), so existing users
-            // don't appear to have had their settings silently reset. Only the
-            // keys AppSettings actually defines are copied — no other apps'
+            // First launch after the original UserDefaults -> file-backed-store
+            // migration: carry over whatever was previously in
+            // UserDefaults.standard's `com.sampop.WhisperDictation` domain (the
+            // only domain this app ever wrote to), so existing users don't appear
+            // to have had their settings silently reset. Only the keys
+            // AppSettings actually defines are copied — no other apps'
             // UserDefaults data is touched or read.
             self.storage = Self.migrateFromUserDefaults()
             if !self.storage.isEmpty { save() }
@@ -69,20 +84,31 @@ final class FileBackedDefaults: @unchecked Sendable {
         return migrated
     }
 
-    private static func load(from url: URL) -> [String: Any] {
+    private static func loadJSON(from url: URL) -> [String: Any] {
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return json
+    }
+
+    private static func loadPlist(from url: URL) -> [String: Any] {
         guard let data = try? Data(contentsOf: url),
               let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any]
         else { return [:] }
         return plist
     }
 
-    /// Writes the whole store back to disk. Called after every mutation — settings
-    /// changes are infrequent (user interactions in Settings, not a hot path), so
-    /// the simplicity of "always persist the full dict" outweighs batching writes.
+    /// Writes the whole store back to disk as pretty-printed, sorted-key JSON —
+    /// legible and diff-friendly for anyone opening the file directly. Called
+    /// after every mutation — settings changes are infrequent (user interactions
+    /// in Settings, not a hot path), so the simplicity of "always persist the
+    /// full dict" outweighs batching writes.
     private func save() {
         let dir = fileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        guard let data = try? PropertyListSerialization.data(fromPropertyList: storage, format: .xml, options: 0) else { return }
+        guard JSONSerialization.isValidJSONObject(storage),
+              let data = try? JSONSerialization.data(withJSONObject: storage, options: [.prettyPrinted, .sortedKeys])
+        else { return }
         try? data.write(to: fileURL, options: .atomic)
     }
 
