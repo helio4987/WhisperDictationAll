@@ -496,17 +496,43 @@ private struct LanguagesSection: View {
                 Spacer()
 
                 if isDownloaded {
-                    if !isSelected {
-                        Button("Activate") {
-                            settings.secondaryModelSelection = model.settingsId
+                    let isLoadedInMemory = isSelected && engine.secondaryModelLoadState == .ready
+                    HStack(spacing: 6) {
+                        if !isSelected {
+                            Button("Activate") {
+                                settings.secondaryModelSelection = model.settingsId
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .tint(.blue)
+                        } else if isLoadedInMemory {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.system(size: 18))
+                            Button("Unload") {
+                                engine.unloadModel(for: .secondary)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.system(size: 18))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .tint(.blue)
-                    } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.system(size: 18))
+
+                        // Delete is only offered once a model is not currently
+                        // resident in memory — unload (or an idle-timeout) first.
+                        if !isLoadedInMemory {
+                            Button {
+                                try? modelManager.deleteModel(model)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Delete downloaded model")
+                        }
                     }
                 } else if modelManager.isDownloading(model) {
                     downloadingControls(for: model)
@@ -826,18 +852,45 @@ private struct ModelSection: View {
                 Spacer()
 
                 if isDownloaded {
-                    if !isSelected {
-                        Button("Activate") {
-                            settings.selectedModel = model.settingsId
-                            engine.reloadModel()
+                    let isLoadedInMemory = isSelected && engine.primaryModelLoadState == .ready
+                    HStack(spacing: 6) {
+                        if !isSelected {
+                            Button("Activate") {
+                                settings.selectedModel = model.settingsId
+                                engine.reloadModel()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .tint(.blue)
+                        } else if isLoadedInMemory {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.system(size: 18))
+                            Button("Unload") {
+                                engine.unloadModel(for: .primary)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.system(size: 18))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .tint(.blue)
-                    } else {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.system(size: 18))
+
+                        // Delete is only offered once a model is not currently
+                        // resident in memory — unload (or an idle-timeout) first.
+                        // Prevents pulling the file out from under an active bridge.
+                        if !isLoadedInMemory {
+                            Button {
+                                try? modelManager.deleteModel(model)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Delete downloaded model")
+                        }
                     }
                 } else if modelManager.isDownloading(model) {
                     downloadingControls(for: model)

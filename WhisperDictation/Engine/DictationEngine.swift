@@ -225,6 +225,18 @@ final class DictationEngine {
         Task { await slot.unload() }
     }
 
+    /// Manually unload a language's model, independent of its idle timer (which
+    /// keeps running on its own schedule regardless — this is just an immediate,
+    /// user-triggered version of what the timer eventually does on its own).
+    /// Safe to call at any time: an in-flight transcription already holds its own
+    /// reference to the resource (captured via `ensureLoaded()`'s return value), so
+    /// unloading the slot underneath it doesn't interrupt that transcription — only
+    /// the *next* `ensureLoaded()` call reloads from disk.
+    func unloadModel(for language: ActiveLanguage) {
+        let slot = language == .primary ? primarySlot : secondarySlot
+        Task { await slot.unload() }
+    }
+
     /// Transition to idle and, if a model reload was deferred while the engine was
     /// busy, perform it now. Main-actor only.
     private func returnToIdle() {
