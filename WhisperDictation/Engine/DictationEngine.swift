@@ -95,10 +95,14 @@ final class DictationEngine {
     private let secondarySlot = LanguageModelSlot<WhisperBridge>(
         idleTimeoutMinutes: { AppSettings.shared.secondaryIdleTimeoutMinutes },
         load: {
+            let language = AppSettings.shared.secondaryLanguageCode
+            guard !language.isEmpty else {
+                throw WhisperError.modelLoadFailed("No secondary language chosen. Pick one in Settings.")
+            }
             guard let modelPath = ModelManager.shared.secondaryModelPath() else {
                 throw WhisperError.modelLoadFailed("No secondary-language model downloaded")
             }
-            let bridge = try WhisperBridge(modelPath: modelPath, language: AppSettings.shared.secondaryLanguageCode)
+            let bridge = try WhisperBridge(modelPath: modelPath, language: language)
             await bridge.warmup()
             return bridge
         },
@@ -290,6 +294,14 @@ final class DictationEngine {
         if isBusy {
             cancelTranscription()
         } else if state == .idle {
+            // No language chosen yet (default is empty — see AppSettings) — stay
+            // inert rather than attempting to load a model with an empty Whisper
+            // language code. Surface this once per press so it's discoverable
+            // without needing to open Settings proactively.
+            guard !AppSettings.shared.secondaryLanguageCode.isEmpty else {
+                transcriptionError = "Choose a secondary language in Settings before using this hotkey."
+                return
+            }
             activeLanguage = .secondary
             startRecording()
         }

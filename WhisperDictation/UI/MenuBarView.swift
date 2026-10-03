@@ -124,7 +124,7 @@ struct MenuBarView: View {
                 loadFailed: isLoadFailed(engine.primaryModelLoadState)
             )
             LanguageStatusRow(
-                label: "Secondary (\(secondaryLanguageDisplayName))",
+                label: settings.secondaryLanguageCode.isEmpty ? "Secondary (not set)" : "Secondary (\(secondaryLanguageDisplayName))",
                 hotkeyLabel: secondaryHotkeyLabel,
                 isLoaded: engine.secondaryModelLoadState == .ready,
                 isLoading: engine.secondaryModelLoadState == .loading,

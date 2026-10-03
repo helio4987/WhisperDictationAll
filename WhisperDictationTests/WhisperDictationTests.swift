@@ -183,12 +183,26 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertNotEqual(AppSettings.shared.hotkeyKeyCode, AppSettings.shared.secondaryHotkeyKeyCode)
     }
 
-    func testSecondaryLanguageCodeDefaultAndRoundTrip() {
+    func testSecondaryLanguageCodeDefaultsToEmpty() {
+        let key = "secondaryLanguageCode"
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        UserDefaults.standard.removeObject(forKey: key)
+
+        // Nothing is pre-selected for a fresh install — the user must explicitly
+        // choose a secondary language in Settings before the secondary hotkey
+        // does anything (see DictationEngine.handleSecondaryKeyDown).
+        XCTAssertEqual(AppSettings.shared.secondaryLanguageCode, "")
+    }
+
+    func testSecondaryLanguageCodeRoundTrips() {
         let settings = AppSettings.shared
         let original = settings.secondaryLanguageCode
         defer { settings.secondaryLanguageCode = original }
 
-        XCTAssertFalse(settings.secondaryLanguageCode.isEmpty)
         settings.secondaryLanguageCode = "es"
         XCTAssertEqual(settings.secondaryLanguageCode, "es")
     }

@@ -89,10 +89,11 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
     }
 
     /// ISO-639-1-ish Whisper language code for secondary-language dictation (e.g.
-    /// "pt" for Portuguese). Defaults to "pt" — arbitrary but sane; the picker in
-    /// Settings lets the user change it before ever using the secondary hotkey.
+    /// "pt" for Portuguese). Defaults to empty — nothing is picked for the user;
+    /// the secondary hotkey stays inert (see `DictationEngine`) until a language
+    /// is explicitly chosen via the picker in Settings > Secondary Language.
     var secondaryLanguageCode: String {
-        get { defaults.string(forKey: Key.secondaryLanguageCode.rawValue) ?? "pt" }
+        get { defaults.string(forKey: Key.secondaryLanguageCode.rawValue) ?? "" }
         set { defaults.set(newValue, forKey: Key.secondaryLanguageCode.rawValue); objectWillChange.send() }
     }
 

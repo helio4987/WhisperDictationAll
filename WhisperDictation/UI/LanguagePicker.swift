@@ -19,7 +19,8 @@ struct LanguagePicker: View {
     }
 
     private var selectedDisplayName: String {
-        WhisperLanguages.language(forCode: selectedCode)?.displayName ?? selectedCode
+        if selectedCode.isEmpty { return "Not set" }
+        return WhisperLanguages.language(forCode: selectedCode)?.displayName ?? selectedCode
     }
 
     var body: some View {
@@ -59,9 +60,12 @@ struct LanguagePicker: View {
                 HStack(spacing: 6) {
                     Text(selectedDisplayName)
                         .font(.system(size: 12, weight: .medium))
-                    Text("(\(selectedCode))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(selectedCode.isEmpty ? .secondary : .primary)
+                    if !selectedCode.isEmpty {
+                        Text("(\(selectedCode))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.horizontal, 2)
             }
