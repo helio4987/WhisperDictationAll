@@ -6,11 +6,11 @@ MODEL_NAME="${1:-small.en}"
 MODEL_FILE="ggml-${MODEL_NAME}.bin"
 MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${MODEL_FILE}"
 
-# App stores models in Application Support
-APP_SUPPORT_DIR="$HOME/Library/Application Support/WhisperDictation/Models"
-mkdir -p "$APP_SUPPORT_DIR"
+# App stores models alongside settings in ~/.WhisperDictation
+MODELS_DIR="$HOME/.WhisperDictation/Models"
+mkdir -p "$MODELS_DIR"
 
-DEST="$APP_SUPPORT_DIR/$MODEL_FILE"
+DEST="$MODELS_DIR/$MODEL_FILE"
 
 if [ -f "$DEST" ]; then
     echo "Model already exists: $DEST"

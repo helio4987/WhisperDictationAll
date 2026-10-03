@@ -174,11 +174,43 @@ final class ModelManager: ObservableObject, @unchecked Sendable {
         ]
     }
 
+    /// `~/.WhisperDictation/Models` — alongside `settings.json`, so everything the
+    /// app persists lives under one visible, accessible top-level folder instead
+    /// of being split between there and `~/Library/Application Support`.
     var modelsDirectory: URL {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("WhisperDictation/Models", isDirectory: true)
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".WhisperDictation", isDirectory: true)
+            .appendingPathComponent("Models", isDirectory: true)
         try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        migrateLegacyModelsIfNeeded(into: dir)
         return dir
+    }
+
+    /// Prior location, used before models moved alongside settings in
+    /// `~/.WhisperDictation`.
+    private var legacyModelsDirectory: URL {
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("WhisperDictation/Models", isDirectory: true)
+    }
+
+    /// One-time migration: model files are large (up to ~1.5 GB), so this MOVES
+    /// rather than copies them — avoiding doubling disk usage or forcing a
+    /// multi-gigabyte re-download for anyone who already had models downloaded
+    /// under the old Application Support location. Only runs the first time
+    /// `modelsDirectory` is accessed after upgrading (each file is moved at most
+    /// once; already-migrated or never-downloaded files are silently skipped).
+    /// Best-effort: a failure moving one file (e.g. a permissions issue) doesn't
+    /// block the others or crash — the caller falls back to treating that model
+    /// as not-yet-downloaded, same as if it had never been fetched.
+    private func migrateLegacyModelsIfNeeded(into newDir: URL) {
+        let legacyDir = legacyModelsDirectory
+        guard fileManager.fileExists(atPath: legacyDir.path) else { return }
+        guard let entries = try? fileManager.contentsOfDirectory(at: legacyDir, includingPropertiesForKeys: nil) else { return }
+        for legacyFile in entries {
+            let destination = newDir.appendingPathComponent(legacyFile.lastPathComponent)
+            guard !fileManager.fileExists(atPath: destination.path) else { continue }
+            try? fileManager.moveItem(at: legacyFile, to: destination)
+        }
     }
 
     func activeModelPath() -> String? {
