@@ -9,6 +9,7 @@ APP_BUNDLE := $(BUILD_DIR)/WhisperDictation.app
 # what we ship — Apple Silicon and Intel users both need to be able to run it.
 
 SWIFT_FILES := \
+	WhisperDictation/Utilities/FileBackedDefaults.swift \
 	WhisperDictation/Utilities/Settings.swift \
 	WhisperDictation/Utilities/KeyCodeNames.swift \
 	WhisperDictation/Utilities/AppInfo.swift \

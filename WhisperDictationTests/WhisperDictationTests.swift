@@ -70,48 +70,48 @@ final class AppSettingsTests: XCTestCase {
     /// the getter.
     func testToggleHoldDurationGetterClampsRawValue() {
         let key = "toggleHoldDuration"
-        let saved = UserDefaults.standard.object(forKey: key)
+        let saved = FileBackedDefaults.shared.object(forKey: key)
         defer {
-            if let saved { UserDefaults.standard.set(saved, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
         }
 
-        UserDefaults.standard.set(999.0, forKey: key)
+        FileBackedDefaults.shared.set(999.0, forKey: key)
         XCTAssertEqual(AppSettings.shared.toggleHoldDuration, 3.0)
 
-        UserDefaults.standard.set(-5.0, forKey: key)
+        FileBackedDefaults.shared.set(-5.0, forKey: key)
         XCTAssertEqual(AppSettings.shared.toggleHoldDuration, 0.5)
     }
 
     func testMinimumRecordingDurationGetterClampsRawValue() {
         let key = "minimumRecordingDuration"
-        let saved = UserDefaults.standard.object(forKey: key)
+        let saved = FileBackedDefaults.shared.object(forKey: key)
         defer {
-            if let saved { UserDefaults.standard.set(saved, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
         }
 
-        UserDefaults.standard.set(999.0, forKey: key)
+        FileBackedDefaults.shared.set(999.0, forKey: key)
         XCTAssertEqual(AppSettings.shared.minimumRecordingDuration, 5.0)
 
-        UserDefaults.standard.set(-5.0, forKey: key)
+        FileBackedDefaults.shared.set(-5.0, forKey: key)
         XCTAssertEqual(AppSettings.shared.minimumRecordingDuration, 0.0)
     }
 
     func testSelectedModelFallsBackForUnknownValue() {
         let key = "selectedModel"
-        let saved = UserDefaults.standard.object(forKey: key)
+        let saved = FileBackedDefaults.shared.object(forKey: key)
         defer {
-            if let saved { UserDefaults.standard.set(saved, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
         }
 
         // Unknown id → default
-        UserDefaults.standard.set("totally-bogus-model-xyz", forKey: key)
+        FileBackedDefaults.shared.set("totally-bogus-model-xyz", forKey: key)
         XCTAssertEqual(AppSettings.shared.selectedModel, "small.en")
 
         // Known catalog id → preserved
-        UserDefaults.standard.set("base.en", forKey: key)
+        FileBackedDefaults.shared.set("base.en", forKey: key)
         XCTAssertEqual(AppSettings.shared.selectedModel, "base.en")
     }
 
@@ -167,16 +167,16 @@ final class AppSettingsTests: XCTestCase {
         // to left Option (58).
         let secondaryKey = "secondaryHotkeyKeyCode"
         let primaryKey = "hotkeyKeyCode"
-        let savedSecondary = UserDefaults.standard.object(forKey: secondaryKey)
-        let savedPrimary = UserDefaults.standard.object(forKey: primaryKey)
+        let savedSecondary = FileBackedDefaults.shared.object(forKey: secondaryKey)
+        let savedPrimary = FileBackedDefaults.shared.object(forKey: primaryKey)
         defer {
-            if let savedSecondary { UserDefaults.standard.set(savedSecondary, forKey: secondaryKey) }
-            else { UserDefaults.standard.removeObject(forKey: secondaryKey) }
-            if let savedPrimary { UserDefaults.standard.set(savedPrimary, forKey: primaryKey) }
-            else { UserDefaults.standard.removeObject(forKey: primaryKey) }
+            if let savedSecondary { FileBackedDefaults.shared.set(savedSecondary, forKey: secondaryKey) }
+            else { FileBackedDefaults.shared.removeObject(forKey: secondaryKey) }
+            if let savedPrimary { FileBackedDefaults.shared.set(savedPrimary, forKey: primaryKey) }
+            else { FileBackedDefaults.shared.removeObject(forKey: primaryKey) }
         }
-        UserDefaults.standard.removeObject(forKey: secondaryKey)
-        UserDefaults.standard.removeObject(forKey: primaryKey)
+        FileBackedDefaults.shared.removeObject(forKey: secondaryKey)
+        FileBackedDefaults.shared.removeObject(forKey: primaryKey)
 
         XCTAssertEqual(AppSettings.shared.hotkeyKeyCode, 61)
         XCTAssertEqual(AppSettings.shared.secondaryHotkeyKeyCode, 58)
@@ -185,12 +185,12 @@ final class AppSettingsTests: XCTestCase {
 
     func testSecondaryLanguageCodeDefaultsToEmpty() {
         let key = "secondaryLanguageCode"
-        let saved = UserDefaults.standard.object(forKey: key)
+        let saved = FileBackedDefaults.shared.object(forKey: key)
         defer {
-            if let saved { UserDefaults.standard.set(saved, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
         }
-        UserDefaults.standard.removeObject(forKey: key)
+        FileBackedDefaults.shared.removeObject(forKey: key)
 
         // Nothing is pre-selected for a fresh install — the user must explicitly
         // choose a secondary language in Settings before the secondary hotkey
@@ -209,45 +209,45 @@ final class AppSettingsTests: XCTestCase {
 
     func testSecondaryModelSelectionFallsBackForUnknownOrEnglishOnlyValue() {
         let key = "secondaryModelSelection"
-        let saved = UserDefaults.standard.object(forKey: key)
+        let saved = FileBackedDefaults.shared.object(forKey: key)
         defer {
-            if let saved { UserDefaults.standard.set(saved, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
         }
 
         // Unknown id -> default
-        UserDefaults.standard.set("totally-bogus-xyz", forKey: key)
+        FileBackedDefaults.shared.set("totally-bogus-xyz", forKey: key)
         XCTAssertEqual(AppSettings.shared.secondaryModelSelection, "small")
 
         // English-only id (not multilingual) must NOT be accepted for the
         // secondary slot, even though it's a real catalog id.
-        UserDefaults.standard.set("small.en", forKey: key)
+        FileBackedDefaults.shared.set("small.en", forKey: key)
         XCTAssertEqual(AppSettings.shared.secondaryModelSelection, "small")
 
         // Known multilingual id -> preserved
-        UserDefaults.standard.set("base", forKey: key)
+        FileBackedDefaults.shared.set("base", forKey: key)
         XCTAssertEqual(AppSettings.shared.secondaryModelSelection, "base")
     }
 
     func testPrimaryIdleTimeoutDefaultsToNeverUnload() {
         let key = "primaryIdleTimeoutMinutes"
-        let saved = UserDefaults.standard.object(forKey: key)
+        let saved = FileBackedDefaults.shared.object(forKey: key)
         defer {
-            if let saved { UserDefaults.standard.set(saved, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
         }
-        UserDefaults.standard.removeObject(forKey: key)
+        FileBackedDefaults.shared.removeObject(forKey: key)
         XCTAssertEqual(AppSettings.shared.primaryIdleTimeoutMinutes, 0)
     }
 
     func testSecondaryIdleTimeoutDefaultsToTenMinutes() {
         let key = "secondaryIdleTimeoutMinutes"
-        let saved = UserDefaults.standard.object(forKey: key)
+        let saved = FileBackedDefaults.shared.object(forKey: key)
         defer {
-            if let saved { UserDefaults.standard.set(saved, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
         }
-        UserDefaults.standard.removeObject(forKey: key)
+        FileBackedDefaults.shared.removeObject(forKey: key)
         XCTAssertEqual(AppSettings.shared.secondaryIdleTimeoutMinutes, 10)
     }
 
@@ -279,7 +279,7 @@ final class AppSettingsTests: XCTestCase {
         }
 
         // Clear any stored prompt so the default-lookup path is exercised.
-        UserDefaults.standard.removeObject(forKey: "secondaryVocabularyPrompt")
+        FileBackedDefaults.shared.removeObject(forKey: "secondaryVocabularyPrompt")
         settings.secondaryLanguageCode = "pt"
 
         XCTAssertEqual(settings.secondaryVocabularyPrompt, AppSettings.defaultPortugalPortuguesePrompt)
@@ -296,7 +296,7 @@ final class AppSettingsTests: XCTestCase {
             settings.secondaryLanguageCode = savedLanguage
         }
 
-        UserDefaults.standard.removeObject(forKey: "secondaryVocabularyPrompt")
+        FileBackedDefaults.shared.removeObject(forKey: "secondaryVocabularyPrompt")
         settings.secondaryLanguageCode = "fr"
 
         XCTAssertEqual(settings.secondaryVocabularyPrompt, "")
@@ -322,10 +322,10 @@ final class AppSettingsTests: XCTestCase {
         defer { settings.includeEnglishTermsInSecondary = original }
 
         let key = "includeEnglishTermsInSecondary"
-        let saved = UserDefaults.standard.object(forKey: key)
-        UserDefaults.standard.removeObject(forKey: key)
+        let saved = FileBackedDefaults.shared.object(forKey: key)
+        FileBackedDefaults.shared.removeObject(forKey: key)
         XCTAssertFalse(AppSettings.shared.includeEnglishTermsInSecondary)
-        if let saved { UserDefaults.standard.set(saved, forKey: key) }
+        if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
 
         settings.includeEnglishTermsInSecondary = true
         XCTAssertTrue(settings.includeEnglishTermsInSecondary)

@@ -3,7 +3,7 @@ import Foundation
 final class AppSettings: ObservableObject, @unchecked Sendable {
     static let shared = AppSettings()
 
-    private let defaults = UserDefaults.standard
+    private let defaults = FileBackedDefaults.shared
 
     // MARK: - Hotkey Mode
 
