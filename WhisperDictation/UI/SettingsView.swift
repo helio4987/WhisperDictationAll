@@ -342,6 +342,11 @@ private struct SecondaryLanguageSection: View {
     var body: some View {
         VStack(spacing: 14) {
             SettingsCard(colorScheme: colorScheme) {
+                CardHeader("Language", subtitle: "Language to transcribe with the secondary hotkey")
+                LanguagePicker(selectedCode: $settings.secondaryLanguageCode, colorScheme: colorScheme)
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
                 CardHeader(
                     "Secondary Hotkey",
                     subtitle: "Hold to dictate in a second language — push-to-talk only"
@@ -351,11 +356,6 @@ private struct SecondaryLanguageSection: View {
                     label: "Unload model when idle",
                     minutes: $settings.secondaryIdleTimeoutMinutes
                 )
-            }
-
-            SettingsCard(colorScheme: colorScheme) {
-                CardHeader("Language", subtitle: "Language to transcribe with the secondary hotkey")
-                LanguagePicker(selectedCode: $settings.secondaryLanguageCode, colorScheme: colorScheme)
             }
 
             CardHeader("Secondary Model (Multilingual)", subtitle: "Recommended (Quantized)")
@@ -725,6 +725,17 @@ private struct PrimaryLanguageSection: View {
 
     var body: some View {
         VStack(spacing: 14) {
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader("Language", subtitle: "The primary hotkey always dictates in this language")
+                HStack(spacing: 6) {
+                    Text("English")
+                        .font(.system(size: 13, weight: .medium))
+                    Text("(fixed)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             SettingsCard(colorScheme: colorScheme) {
                 CardHeader(
                     "Hotkey",
