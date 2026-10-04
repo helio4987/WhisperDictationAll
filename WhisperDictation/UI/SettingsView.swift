@@ -13,9 +13,8 @@ struct SettingsView: View {
 
     enum SettingsSection: String, CaseIterable, Identifiable {
         case general = "General"
-        case model = "Model"
+        case primaryLanguage = "Primary Language"
         case secondaryLanguage = "Secondary Language"
-        case vocabulary = "Vocabulary"
         case permissions = "Permissions"
 
         var id: String { rawValue }
@@ -23,9 +22,8 @@ struct SettingsView: View {
         var icon: String {
             switch self {
             case .general: "gearshape.fill"
-            case .model: "brain.head.profile.fill"
+            case .primaryLanguage: "flag.fill"
             case .secondaryLanguage: "globe"
-            case .vocabulary: "text.book.closed.fill"
             case .permissions: "lock.shield.fill"
             }
         }
@@ -66,23 +64,15 @@ struct SettingsView: View {
 
             Spacer()
 
-            HStack(spacing: 6) {
-                // Primary loads lazily now (same as secondary) — "Unloaded" here
-                // just means it isn't currently resident, not that anything is
-                // stuck or broken. It loads automatically on the next hotkey press.
-                Circle()
-                    .fill(engine.isModelLoaded ? .green : .secondary)
-                    .frame(width: 7, height: 7)
-                Text(engine.isModelLoaded ? "Loaded" : "Unloaded")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("v\(Bundle.main.appVersion)")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.quaternary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            // Per-language loaded/unloaded state now lives in the menu bar and in
+            // each language's own Settings tab — a single indicator here would
+            // misleadingly suggest one of the two languages is "the" model.
+            Text("v\(Bundle.main.appVersion)")
+                .font(.system(size: 10))
+                .foregroundStyle(.quaternary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
         }
         .frame(width: 170)
         .background(
@@ -103,13 +93,11 @@ struct SettingsView: View {
 
                 switch selectedSection {
                 case .general:
-                    GeneralSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
-                case .model:
-                    ModelSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
+                    GeneralSection(settings: settings, modelManager: modelManager, colorScheme: colorScheme)
+                case .primaryLanguage:
+                    PrimaryLanguageSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
                 case .secondaryLanguage:
-                    LanguagesSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
-                case .vocabulary:
-                    VocabularySection(settings: settings, colorScheme: colorScheme)
+                    SecondaryLanguageSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
                 case .permissions:
                     PermissionsSection(permissions: permissions, colorScheme: colorScheme)
                 }
@@ -211,68 +199,18 @@ private struct CardHeader: View {
 
 // MARK: - General Section
 
+/// Settings that apply regardless of which language is being dictated: audio
+/// input, shared behavior toggles, and the custom terms list (names/places/jargon
+/// usable from either language's vocabulary prompt). Per-language hotkey, model,
+/// and vocabulary configuration lives in the Primary/Secondary Language tabs.
 private struct GeneralSection: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var modelManager: ModelManager
     @ObservedObject var audioDevices: AudioDeviceManager = .shared
-    let engine: DictationEngine
     let colorScheme: ColorScheme
 
     var body: some View {
         VStack(spacing: 14) {
-            SettingsCard(colorScheme: colorScheme) {
-                CardHeader(
-                    "Hotkey",
-                    subtitle: settings.hotkeyMode == .pushToTalk
-                        ? "Hold key to record, release to transcribe"
-                        : "Press to start, press to stop — easier on the wrists"
-                )
-                HotkeyRecorder(keyCode: $settings.hotkeyKeyCode, colorScheme: colorScheme)
-
-                IdleTimeoutControl(
-                    label: "Unload model when idle",
-                    minutes: $settings.primaryIdleTimeoutMinutes
-                )
-
-                Picker("Mode", selection: $settings.hotkeyMode) {
-                    Text("Push-to-talk").tag(AppSettings.HotkeyMode.pushToTalk)
-                    Text("Toggle — easier on the wrists").tag(AppSettings.HotkeyMode.toggle)
-                }
-                .pickerStyle(.segmented)
-                .font(.system(size: 13))
-                .accessibilityLabel("Hotkey activation mode")
-
-                if settings.hotkeyMode == .toggle {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "hand.raised.fill")
-                            .foregroundStyle(.secondary)
-                            .font(.system(size: 11))
-                        Text("No need to hold the key while you talk — friendlier for long dictations and anyone managing carpal tunnel or RSI.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.top, 4)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Hold duration to activate")
-                                .font(.system(size: 13))
-                            Spacer()
-                            Text(String(format: "%.1fs", settings.toggleHoldDuration))
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                        Slider(value: $settings.toggleHoldDuration, in: 0.5...3.0, step: 0.1)
-                        Text("How long to hold the hotkey to start or stop. Longer values prevent accidental activation when the key is used in shortcuts.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.top, 4)
-                }
-            }
-
             SettingsCard(colorScheme: colorScheme) {
                 CardHeader("Microphone", subtitle: "Audio input device for recording")
                 Picker("Input device", selection: Binding(
@@ -298,11 +236,12 @@ private struct GeneralSection: View {
                     .font(.system(size: 13))
 
                 // Live dictation (experimental): commit-on-pause phrase typing.
-                // The toggle stores intent immediately; enabling without the
-                // voice-activity model also kicks off its download. The engine
-                // keeps the feature inert until that model is on disk.
+                // Primary-only (see DictationEngine) — the toggle lives here
+                // rather than the Primary Language tab since it's a behavior
+                // preference, not a hotkey/model/vocabulary setting, but it has
+                // no effect on secondary-language dictation.
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Live dictation", isOn: Binding(
+                    Toggle("Live dictation (primary language only)", isOn: Binding(
                         get: { settings.liveDictationEnabled },
                         set: { enabled in
                             settings.liveDictationEnabled = enabled
@@ -326,6 +265,11 @@ private struct GeneralSection: View {
                         LaunchAtLoginHelper.setEnabled(newValue)
                     }
             }
+
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader("Names & Terms", subtitle: "Shared across both languages' vocabulary prompts")
+                CustomTermsEditor(settings: settings, colorScheme: colorScheme)
+            }
         }
     }
 
@@ -343,9 +287,9 @@ private struct GeneralSection: View {
             return "Downloading the voice-activity model — live dictation starts working when it finishes."
         }
         if modelManager.downloadError != nil {
-            return "A model download failed — retry from the Models section. Live dictation stays off until the voice-activity model is downloaded."
+            return "A model download failed — retry from the Primary Language tab. Live dictation stays off until the voice-activity model is downloaded."
         }
-        return "Requires the voice-activity model (Models section). Live dictation is off until it's downloaded."
+        return "Requires the voice-activity model (Primary Language tab). Live dictation is off until it's downloaded."
     }
 }
 
@@ -385,7 +329,11 @@ private struct IdleTimeoutControl: View {
 
 // MARK: - Secondary Language Section
 
-private struct LanguagesSection: View {
+/// Everything specific to the secondary hotkey: the hotkey itself (push-to-talk
+/// only — no toggle mode, no live dictation, see DictationEngine), its
+/// idle-unload timeout, language selection, model selection, and its vocabulary
+/// prompt. Mirrors `PrimaryLanguageSection`'s shape.
+private struct SecondaryLanguageSection: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var modelManager: ModelManager
     let engine: DictationEngine
@@ -435,6 +383,48 @@ private struct LanguagesSection: View {
                     Text(error)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader(
+                    "Secondary Vocabulary",
+                    subtitle: "Bias this language toward this vocabulary and spelling"
+                )
+                TextEditor(text: $settings.secondaryVocabularyPrompt)
+                    .font(.system(size: 12, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 180)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color(.textBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08), lineWidth: 0.5)
+                    )
+
+                Toggle("Include vocabulary from Primary language", isOn: $settings.includeEnglishTermsInSecondary)
+                    .font(.system(size: 13))
+                Text("Prefixes this prompt with the Primary Language tab's Developer Vocabulary — useful if you mix primary-language technical terms into secondary-language dictation.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    Text("For European Portuguese, the default is pre-filled with PT-PT spellings to counter Whisper's Brazilian-leaning bias.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Reset") {
+                        settings.secondaryVocabularyPrompt = AppSettings.defaultSecondaryVocabularyPrompt(
+                            forLanguageCode: settings.secondaryLanguageCode
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
         }
@@ -721,9 +711,13 @@ private struct HotkeyRecorder: View {
     }
 }
 
-// MARK: - Model Section
+// MARK: - Primary Language Section
 
-private struct ModelSection: View {
+/// Everything specific to the primary (English) hotkey: the hotkey itself, its
+/// idle-unload timeout, mode (push-to-talk/toggle — primary-only, see class docs
+/// elsewhere), model selection, and its vocabulary prompt. Mirrors
+/// `SecondaryLanguageSection`'s shape.
+private struct PrimaryLanguageSection: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var modelManager: ModelManager
     let engine: DictationEngine
@@ -731,6 +725,59 @@ private struct ModelSection: View {
 
     var body: some View {
         VStack(spacing: 14) {
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader(
+                    "Hotkey",
+                    subtitle: settings.hotkeyMode == .pushToTalk
+                        ? "Hold key to record, release to transcribe"
+                        : "Press to start, press to stop — easier on the wrists"
+                )
+                HotkeyRecorder(keyCode: $settings.hotkeyKeyCode, colorScheme: colorScheme)
+
+                IdleTimeoutControl(
+                    label: "Unload model when idle",
+                    minutes: $settings.primaryIdleTimeoutMinutes
+                )
+
+                Picker("Mode", selection: $settings.hotkeyMode) {
+                    Text("Push-to-talk").tag(AppSettings.HotkeyMode.pushToTalk)
+                    Text("Toggle — easier on the wrists").tag(AppSettings.HotkeyMode.toggle)
+                }
+                .pickerStyle(.segmented)
+                .font(.system(size: 13))
+                .accessibilityLabel("Hotkey activation mode")
+
+                if settings.hotkeyMode == .toggle {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "hand.raised.fill")
+                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11))
+                        Text("No need to hold the key while you talk — friendlier for long dictations and anyone managing carpal tunnel or RSI.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.top, 4)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Hold duration to activate")
+                                .font(.system(size: 13))
+                            Spacer()
+                            Text(String(format: "%.1fs", settings.toggleHoldDuration))
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                        Slider(value: $settings.toggleHoldDuration, in: 0.5...3.0, step: 0.1)
+                        Text("How long to hold the hotkey to start or stop. Longer values prevent accidental activation when the key is used in shortcuts.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
+                }
+            }
+
             // Recommended quantized models
             CardHeader("Recommended (Quantized)", subtitle: "Smaller, faster, near-identical accuracy")
 
@@ -797,6 +844,35 @@ private struct ModelSection: View {
                     Text(error)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader("Developer Vocabulary", subtitle: "Bias Whisper toward recognizing these terms")
+                TextEditor(text: $settings.vocabularyPrompt)
+                    .font(.system(size: 12, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 180)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color(.textBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08), lineWidth: 0.5)
+                    )
+
+                HStack {
+                    Text("Add project-specific terms for better recognition")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Button("Reset") {
+                        settings.vocabularyPrompt = AppSettings.defaultVocabularyPrompt
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
         }
@@ -940,96 +1016,6 @@ private struct ModelSection: View {
         case let f where f.contains("base"): return "⚡"
         case let f where f.contains("small"): return "🎯"
         default: return "🧠"
-        }
-    }
-}
-
-// MARK: - Vocabulary Section
-
-private struct VocabularySection: View {
-    @ObservedObject var settings: AppSettings
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        VStack(spacing: 14) {
-            // Names & Terms
-            SettingsCard(colorScheme: colorScheme) {
-                CardHeader("Names & Terms", subtitle: "Add names of people, places, and terms you use often")
-                CustomTermsEditor(settings: settings, colorScheme: colorScheme)
-            }
-
-            // Developer Vocabulary (primary/English)
-            SettingsCard(colorScheme: colorScheme) {
-                CardHeader("Developer Vocabulary", subtitle: "Bias Whisper toward recognizing these terms")
-                TextEditor(text: $settings.vocabularyPrompt)
-                    .font(.system(size: 12, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .frame(minHeight: 180)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color(.textBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08), lineWidth: 0.5)
-                    )
-
-                HStack {
-                    Text("Add project-specific terms for better recognition")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                    Spacer()
-                    Button("Reset") {
-                        settings.vocabularyPrompt = AppSettings.defaultVocabularyPrompt
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-
-            // Secondary Language Vocabulary
-            SettingsCard(colorScheme: colorScheme) {
-                CardHeader(
-                    "Secondary Language Vocabulary",
-                    subtitle: "Bias the secondary hotkey's language toward this vocabulary and spelling"
-                )
-                TextEditor(text: $settings.secondaryVocabularyPrompt)
-                    .font(.system(size: 12, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .frame(minHeight: 180)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color(.textBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08), lineWidth: 0.5)
-                    )
-
-                Toggle("Include all terms from English", isOn: $settings.includeEnglishTermsInSecondary)
-                    .font(.system(size: 13))
-                Text("Prefixes this prompt with the Developer Vocabulary above — useful if you mix English technical terms into secondary-language dictation.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack {
-                    Text("For European Portuguese, the default is pre-filled with PT-PT spellings to counter Whisper's Brazilian-leaning bias.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    Button("Reset") {
-                        settings.secondaryVocabularyPrompt = AppSettings.defaultSecondaryVocabularyPrompt(
-                            forLanguageCode: settings.secondaryLanguageCode
-                        )
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
         }
     }
 }
