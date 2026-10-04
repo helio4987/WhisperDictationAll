@@ -439,15 +439,13 @@ private struct SecondaryLanguageSection: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack {
-                    Text("For European Portuguese, the default is pre-filled with PT-PT spellings to counter Whisper's Brazilian-leaning bias.")
+                    Text("No built-in preset — see the README for ready-made regional prompts (e.g. European Portuguese) to paste in here.")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer()
-                    Button("Reset") {
-                        settings.secondaryVocabularyPrompt = AppSettings.defaultSecondaryVocabularyPrompt(
-                            forLanguageCode: settings.secondaryLanguageCode
-                        )
+                    Button("Clear") {
+                        settings.secondaryVocabularyPrompt = ""
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

@@ -269,37 +269,17 @@ final class AppSettingsTests: XCTestCase {
 
     // MARK: - Secondary vocabulary
 
-    func testSecondaryVocabularyPromptDefaultsToPortugalPresetWhenLanguageIsPortuguese() {
-        let settings = AppSettings.shared
-        let savedPrompt = settings.secondaryVocabularyPrompt
-        let savedLanguage = settings.secondaryLanguageCode
+    func testSecondaryVocabularyPromptDefaultsToEmpty() {
+        let key = "secondaryVocabularyPrompt"
+        let saved = FileBackedDefaults.shared.object(forKey: key)
         defer {
-            settings.secondaryVocabularyPrompt = savedPrompt
-            settings.secondaryLanguageCode = savedLanguage
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
         }
+        FileBackedDefaults.shared.removeObject(forKey: key)
 
-        // Clear any stored prompt so the default-lookup path is exercised.
-        FileBackedDefaults.shared.removeObject(forKey: "secondaryVocabularyPrompt")
-        settings.secondaryLanguageCode = "pt"
-
-        XCTAssertEqual(settings.secondaryVocabularyPrompt, AppSettings.defaultPortugalPortuguesePrompt)
-        XCTAssertTrue(settings.secondaryVocabularyPrompt.contains("Facto"))
-        XCTAssertTrue(settings.secondaryVocabularyPrompt.contains("português europeu"))
-    }
-
-    func testSecondaryVocabularyPromptDefaultsToEmptyForUnknownLanguage() {
-        let settings = AppSettings.shared
-        let savedPrompt = settings.secondaryVocabularyPrompt
-        let savedLanguage = settings.secondaryLanguageCode
-        defer {
-            settings.secondaryVocabularyPrompt = savedPrompt
-            settings.secondaryLanguageCode = savedLanguage
-        }
-
-        FileBackedDefaults.shared.removeObject(forKey: "secondaryVocabularyPrompt")
-        settings.secondaryLanguageCode = "fr"
-
-        XCTAssertEqual(settings.secondaryVocabularyPrompt, "")
+        // No built-in preset — the user pastes one in from the README if wanted.
+        XCTAssertEqual(AppSettings.shared.secondaryVocabularyPrompt, "")
     }
 
     func testSecondaryVocabularyPromptRoundTrips() {
@@ -309,11 +289,6 @@ final class AppSettingsTests: XCTestCase {
 
         settings.secondaryVocabularyPrompt = "custom secondary vocab"
         XCTAssertEqual(settings.secondaryVocabularyPrompt, "custom secondary vocab")
-    }
-
-    func testDefaultSecondaryVocabularyPromptLookup() {
-        XCTAssertEqual(AppSettings.defaultSecondaryVocabularyPrompt(forLanguageCode: "pt"), AppSettings.defaultPortugalPortuguesePrompt)
-        XCTAssertEqual(AppSettings.defaultSecondaryVocabularyPrompt(forLanguageCode: "es"), "")
     }
 
     func testIncludeEnglishTermsInSecondaryDefaultsFalseAndRoundTrips() {

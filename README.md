@@ -34,6 +34,36 @@ WhisperDictation is a **free, open-source macOS dictation app** -- a local alter
 - Commercial tools like Willow Voice and WisprFlow cost $8-15/month
 - WhisperDictation is **completely free**, runs **100% offline**, and is **optimized for developers** with 500+ technical terms built in
 
+## How This Fork Differs From The Original
+
+This is a personal fork of [sam-pop/WhisperDictation](https://github.com/sam-pop/WhisperDictation). It adds secondary-language dictation and reworks model/settings storage, on top of everything upstream already does:
+
+- **Secondary-language dictation hotkey** -- a second, independently configurable hotkey dictates in a different language. Push-to-talk only (no toggle mode, no live dictation) by design, to keep the feature scoped and low-risk.
+- **Per-language model catalog** -- the secondary hotkey uses Whisper's multilingual models, selectable independently from the primary (English) model.
+- **Per-language vocabulary prompts** -- the secondary language gets its own vocabulary/initial prompt (empty by default), with an optional toggle to also include the primary language's vocabulary terms. See [Regional/Style Vocabulary Presets](#regionalstyle-vocabulary-presets) below for a ready-made European Portuguese prompt you can paste in.
+- **Symmetric auto load/unload** -- both the primary and secondary models now lazy-load on first use and idle-unload after a timeout, instead of the primary model staying permanently resident.
+- **Manual Unload and Delete controls** -- each downloaded model in Settings can be unloaded from memory or deleted from disk on demand.
+- **Secondary language defaults to empty** -- it must be explicitly chosen rather than defaulting to a hardcoded language.
+- **Settings reorganized into four tabs** -- General, Primary Language, Secondary Language, and Permissions, so both languages get equivalent, mirrored settings sections (language, hotkey, model, vocabulary).
+- **Per-language status in the menu bar** -- the menu bar shows each language's hotkey and model state (loaded/unloaded/loading/failed) independently.
+- **Settings stored as JSON, not plist** -- settings live at `~/.WhisperDictation/settings.json` instead of `UserDefaults`/a plist, for legibility. Existing settings are migrated automatically.
+- **Downloaded models relocated** -- models now live at `~/.WhisperDictation/Models/` instead of `~/Library/Application Support/...`, migrated (moved, not copied) automatically on first run.
+- **Resizable Settings window.**
+
+### Regional/Style Vocabulary Presets
+
+The secondary vocabulary prompt is empty by default -- there's no built-in regional preset baked into the app. That's because Whisper's `initial_prompt` biases both vocabulary *and* spelling/style toward whatever the prompt itself is written in (per OpenAI's prompting guide), which is useful well beyond any one language: it's a general technique for nudging Whisper toward a specific regional spelling or style when its language code doesn't distinguish variants (e.g. there's no separate pt-PT/pt-BR code).
+
+Below is a ready-made prompt for **European Portuguese**, since Whisper's "pt" model is trained mostly on Brazilian Portuguese and otherwise defaults to pt-BR spelling and vocabulary regardless of the speaker's actual accent. Paste it into Settings > Secondary Language > Secondary Vocabulary:
+
+```
+Transcrição em português europeu de Portugal, com ortografia e vocabulário de Portugal (não brasileiro). Facto, ecrã, ficheiro, ratinho, telemóvel, autocarro, comboio, pequeno-almoço, casa de banho, frigorífico, electrodomésticos, pastelaria, talho, sandes, gelado, sumo, rebuçado, chávena, fato, calças, sapatilhas, camisola, fixe, giro, pois, então, já agora, se calhar, está bem, pronto, tipo, portanto, imenso, bué, atrasado, adiantado, marcação, consulta, hospital, farmácia, conta corrente, multibanco, IVA, factura, orçamento, currículo, reunião, colega, chefe, empresa, escritório, atrasar-me, apanhar o autocarro, ir de comboio, marcar uma reunião, enviar um email, WiFi, router, computador, portátil, aplicação, actualização, Lisboa, Porto, Coimbra, Braga, Faro, Algarve, Alentejo, Minho.
+```
+
+Have a preset for another language or regional variant? Feel free to write your own using the same approach -- a short description of the desired style/region up front, followed by vocabulary and phrases written with that region's spelling conventions.
+
+---
+
 ## Features
 
 - **Push-to-talk OR toggle mode** -- hold a hotkey and release, OR press once to start and once to stop. Toggle mode is **carpal-tunnel friendly** for long dictations and anyone with RSI; it requires a configurable hold (default 1.5s) to prevent accidental activation.
