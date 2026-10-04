@@ -197,6 +197,30 @@ private struct CardHeader: View {
     }
 }
 
+/// A plain, bordered row for one model entry — lighter weight than `SettingsCard`
+/// (thinner border, no shadow) since several of these stack inside one outer
+/// "Model" `SettingsCard` rather than each being its own top-level card.
+private struct ModelRow<Content: View>: View {
+    let colorScheme: ColorScheme
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.03) : Color.black.opacity(0.015))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.05), lineWidth: 0.5)
+        )
+    }
+}
+
 // MARK: - General Section
 
 /// Settings that apply regardless of which language is being dictated: audio
@@ -348,7 +372,7 @@ private struct SecondaryLanguageSection: View {
 
             SettingsCard(colorScheme: colorScheme) {
                 CardHeader(
-                    "Secondary Hotkey",
+                    "Hotkey",
                     subtitle: "Hold to dictate in a second language — push-to-talk only"
                 )
                 HotkeyRecorder(keyCode: $settings.secondaryHotkeyKeyCode, colorScheme: colorScheme)
@@ -358,31 +382,33 @@ private struct SecondaryLanguageSection: View {
                 )
             }
 
-            CardHeader("Secondary Model (Multilingual)", subtitle: "Recommended (Quantized)")
-            ForEach(ModelManager.ModelInfo.recommendedMultilingual) { model in
-                secondaryModelCard(model)
-            }
-
-            DisclosureGroup {
-                VStack(spacing: 10) {
-                    ForEach([ModelManager.ModelInfo.baseMultilingual, .smallMultilingual, .mediumMultilingual]) { model in
-                        secondaryModelCard(model)
-                    }
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader("Model (Multilingual)", subtitle: "Recommended (Quantized) → Smaller, faster, near-identical accuracy")
+                ForEach(ModelManager.ModelInfo.recommendedMultilingual) { model in
+                    secondaryModelCard(model)
                 }
-                .padding(.top, 8)
-            } label: {
-                Text("Full Precision Models")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
 
-            if let error = modelManager.downloadError {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text(error)
-                        .font(.system(size: 11))
+                DisclosureGroup {
+                    VStack(spacing: 10) {
+                        ForEach([ModelManager.ModelInfo.baseMultilingual, .smallMultilingual, .mediumMultilingual]) { model in
+                            secondaryModelCard(model)
+                        }
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    Text("Full Precision Models")
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
+                }
+
+                if let error = modelManager.downloadError {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -435,13 +461,14 @@ private struct SecondaryLanguageSection: View {
     /// instead of `selectedModel`, and there's no `engine.reloadModel()` call — the
     /// secondary `LanguageModelSlot` picks up the new selection lazily on its next
     /// load (see `LanguageModelSlot`/`ModelManager.secondaryModelPath()`), it isn't
-    /// eagerly reloaded like the always-loaded primary model.
+    /// eagerly reloaded like the always-loaded primary model. A row (not its own
+    /// card — lives inside the outer "Model (Multilingual)" SettingsCard).
     @ViewBuilder
     private func secondaryModelCard(_ model: ModelManager.ModelInfo) -> some View {
         let isSelected = settings.secondaryModelSelection == model.settingsId
         let isDownloaded = modelManager.isModelDownloaded(model)
 
-        SettingsCard(colorScheme: colorScheme) {
+        ModelRow(colorScheme: colorScheme) {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
@@ -789,18 +816,17 @@ private struct PrimaryLanguageSection: View {
                 }
             }
 
-            // Recommended quantized models
-            CardHeader("Recommended (Quantized)", subtitle: "Smaller, faster, near-identical accuracy")
-
-            ForEach(ModelManager.ModelInfo.recommended) { model in
-                modelCard(model)
-            }
-
-            // VAD model
-            CardHeader("Voice Activity Detection", subtitle: "Trims silence for faster inference (2 MB)")
-
-            let vadDownloaded = modelManager.isModelDownloaded(ModelManager.ModelInfo.vadSilero)
             SettingsCard(colorScheme: colorScheme) {
+                CardHeader("Model", subtitle: "Recommended (Quantized) → Smaller, faster, near-identical accuracy")
+
+                ForEach(ModelManager.ModelInfo.recommended) { model in
+                    modelCard(model)
+                }
+
+                // VAD model
+                CardHeader("Voice Activity Detection", subtitle: "Trims silence for faster inference (2 MB)")
+
+                let vadDownloaded = modelManager.isModelDownloaded(ModelManager.ModelInfo.vadSilero)
                 HStack(spacing: 14) {
                     ZStack {
                         Circle()
@@ -832,29 +858,29 @@ private struct PrimaryLanguageSection: View {
                         .controlSize(.small)
                     }
                 }
-            }
 
-            // Full precision models (collapsible)
-            DisclosureGroup {
-                VStack(spacing: 10) {
-                    ForEach([ModelManager.ModelInfo.baseEn, .smallEn, .mediumEn]) { model in
-                        modelCard(model)
+                // Full precision models (collapsible)
+                DisclosureGroup {
+                    VStack(spacing: 10) {
+                        ForEach([ModelManager.ModelInfo.baseEn, .smallEn, .mediumEn]) { model in
+                            modelCard(model)
+                        }
                     }
-                }
-                .padding(.top, 8)
-            } label: {
-                Text("Full Precision Models")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            if let error = modelManager.downloadError {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text(error)
-                        .font(.system(size: 11))
+                    .padding(.top, 8)
+                } label: {
+                    Text("Full Precision Models")
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
+                }
+
+                if let error = modelManager.downloadError {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -889,12 +915,14 @@ private struct PrimaryLanguageSection: View {
         }
     }
 
+    /// A row (not its own card — these live inside the outer "Model" SettingsCard,
+    /// so nesting another full card here would double up borders/shadows).
     @ViewBuilder
     private func modelCard(_ model: ModelManager.ModelInfo) -> some View {
         let isSelected = isModelSelected(model)
         let isDownloaded = modelManager.isModelDownloaded(model)
 
-        SettingsCard(colorScheme: colorScheme) {
+        ModelRow(colorScheme: colorScheme) {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
