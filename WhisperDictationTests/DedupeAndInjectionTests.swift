@@ -171,6 +171,14 @@ final class AppInfoTests: XCTestCase {
         // Falls back to "1.0" when the host bundle has no CFBundleShortVersionString.
         XCTAssertFalse(Bundle.main.appVersion.isEmpty)
     }
+
+    func testVersionDisplayStringIncludesUpstreamVersion() {
+        // This fork's version numbering restarts at 1.0.0, independent of the
+        // upstream project's own versioning, so the display string must always
+        // show which upstream release the fork originally branched from.
+        XCTAssertTrue(versionDisplayString.contains(upstreamVersion))
+        XCTAssertTrue(versionDisplayString.contains("based on upstream"))
+    }
 }
 
 // MARK: - Term-casing drift guard (Phase 5)

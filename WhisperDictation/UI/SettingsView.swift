@@ -67,10 +67,12 @@ struct SettingsView: View {
             // Per-language loaded/unloaded state now lives in the menu bar and in
             // each language's own Settings tab — a single indicator here would
             // misleadingly suggest one of the two languages is "the" model.
-            Text("v\(Bundle.main.appVersion)")
-                .font(.system(size: 10))
+            Text(versionDisplayString)
+                .font(.system(size: 9))
                 .foregroundStyle(.quaternary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
         }

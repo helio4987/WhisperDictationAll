@@ -51,10 +51,12 @@ struct MenuBarView: View {
             .padding(.vertical, 6)
 
             // Version
-            Text("v\(Bundle.main.appVersion)")
+            Text(versionDisplayString)
                 .font(.system(size: 10))
                 .foregroundStyle(.quaternary)
+                .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, 16)
                 .padding(.bottom, 6)
         }
         .frame(width: 320)
