@@ -816,6 +816,10 @@ private struct CustomOperationRow: View {
 
     @State private var isExpanded = true
     @State private var hotkeyConflictWarning: String?
+    @State private var testInput = "The weather today is pretty nice outside."
+    @State private var testOutput: String?
+    @State private var testError: String?
+    @State private var isTestRunning = false
 
     /// Live-bound to the store: reading always goes through `operationStore`
     /// (so edits from elsewhere, e.g. a future reorder, are reflected), writing
@@ -892,6 +896,8 @@ private struct CustomOperationRow: View {
                         text: binding(\.appendText)
                     )
 
+                    testSection
+
                     Button(role: .destructive) {
                         operationStore.remove(current)
                     } label: {
@@ -949,6 +955,93 @@ private struct CustomOperationRow: View {
                             .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08), lineWidth: 0.5)
                     )
             }
+        }
+    }
+
+    /// Runs this operation end-to-end against sample text, without needing a
+    /// hotkey or a real text selection — proves the model loads and generates
+    /// before the hotkey/selection-capture wiring exists. Edits the sample
+    /// text inline so the user can try their own example.
+    @ViewBuilder
+    private var testSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            Text("Test")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField("Sample text to run this operation on", text: $testInput)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+
+            HStack {
+                Button {
+                    runTest()
+                } label: {
+                    if isTestRunning {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Running...")
+                        }
+                    } else {
+                        Text("Run Test")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isTestRunning || current.modelVariantId == nil || testInput.isEmpty)
+                Spacer()
+            }
+
+            if let testOutput {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Result")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text(testOutput)
+                        .font(.system(size: 12))
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.black.opacity(0.03))
+                        )
+                }
+            }
+
+            if let testError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(testError)
+                        .foregroundStyle(.secondary)
+                }
+                .font(.system(size: 11))
+            }
+        }
+    }
+
+    private func runTest() {
+        guard let variantId = current.modelVariantId,
+              let variant = downloadedVariants.first(where: { $0.id == variantId })
+        else { return }
+
+        isTestRunning = true
+        testOutput = nil
+        testError = nil
+
+        let operationSnapshot = current
+        let modelPath = TextModelManager.shared.localPath(for: variant).path
+
+        Task {
+            do {
+                let bridge = try await TextGenerationManager.shared.bridge(forModelPath: modelPath)
+                let prompt = operationSnapshot.buildPrompt(forSelection: testInput)
+                let result = try await bridge.generate(prompt: prompt)
+                testOutput = result
+            } catch {
+                testError = error.localizedDescription
+            }
+            isTestRunning = false
         }
     }
 

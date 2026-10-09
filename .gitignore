@@ -23,6 +23,7 @@ lib/
 *.o
 *.dylib
 whisper.cpp/build/
+scripts/llama-cmake/build/
 
 # XcodeGen output (regenerate with `xcodegen generate`)
 *.xcodeproj

@@ -201,6 +201,38 @@ final class TextModelManager: ObservableObject {
     }
 }
 
+/// Loads and caches `TextGenerationBridge` instances by model file path, so
+/// running the same operation twice (or two operations sharing one model)
+/// doesn't reload the model from disk each time. Deliberately minimal for
+/// this milestone: no idle-unload, no lazy background pre-warm — just enough
+/// to prove end-to-end inference works via a manual "Test" action in
+/// Settings. Idle-unload (mirroring `LanguageModelSlot`) is the natural next
+/// step once operations are actually triggered via hotkey rather than a
+/// manual test button, so a model doesn't sit resident in memory indefinitely
+/// after a single ad-hoc test run.
+@MainActor
+final class TextGenerationManager {
+    static let shared = TextGenerationManager()
+
+    private var bridgesByPath: [String: TextGenerationBridge] = [:]
+
+    private init() {}
+
+    /// Loads (or reuses an already-loaded) bridge for the model at `path`.
+    /// Runs the load off the main actor — model loading reads a multi-hundred-
+    /// MB-to-several-GB file and parses GGUF metadata, which must not block UI.
+    func bridge(forModelPath path: String) async throws -> TextGenerationBridge {
+        if let existing = bridgesByPath[path] {
+            return existing
+        }
+        let bridge = try await Task.detached(priority: .userInitiated) {
+            try TextGenerationBridge(modelPath: path)
+        }.value
+        bridgesByPath[path] = bridge
+        return bridge
+    }
+}
+
 enum TextModelError: LocalizedError {
     case unsupportedShardedFile(String)
 

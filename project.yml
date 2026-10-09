@@ -32,6 +32,7 @@ targets:
           - "$(PROJECT_DIR)/lib"
         OTHER_LDFLAGS:
           - "-lwhisper"
+          - "-lwhisperdictation_llama"
           - "-lggml"
           - "-lggml-base"
           - "-lggml-cpu"

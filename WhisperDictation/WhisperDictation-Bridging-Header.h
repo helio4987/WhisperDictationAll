@@ -2,5 +2,6 @@
 #define WhisperDictation_Bridging_Header_h
 
 #include "../lib/whisper.h"
+#include "../lib/llama.h"
 
 #endif

@@ -14,6 +14,7 @@ SWIFT_FILES := \
 	WhisperDictation/Utilities/KeyCodeNames.swift \
 	WhisperDictation/Utilities/AppInfo.swift \
 	WhisperDictation/Engine/WhisperBridge.swift \
+	WhisperDictation/Engine/TextGenerationBridge.swift \
 	WhisperDictation/Engine/AudioCapture.swift \
 	WhisperDictation/Engine/TextInjector.swift \
 	WhisperDictation/Engine/SoundFeedback.swift \
@@ -36,17 +37,27 @@ SWIFT_FILES := \
 	WhisperDictation/UI/OnboardingView.swift \
 	WhisperDictation/App/WhisperDictationApp.swift
 
-LIBS := -lwhisper -lggml -lggml-base -lggml-cpu -lggml-metal -lggml-blas -lc++
+LIBS := -lwhisper -lwhisperdictation_llama -lggml -lggml-base -lggml-cpu -lggml-metal -lggml-blas -lc++
 FRAMEWORKS := -framework Accelerate -framework Metal -framework MetalKit -framework AVFoundation -framework CoreGraphics -framework AppKit -framework Foundation -framework ServiceManagement -framework CoreAudio
 
-.PHONY: all clean whisper model app run dmg
+.PHONY: all clean whisper llama model app run dmg
 
-all: whisper app
+all: whisper llama app
 
 whisper: lib/libwhisper.a
 
 lib/libwhisper.a:
 	./scripts/build-whisper.sh
+
+# llama.cpp, built from the sources whisper.cpp vendors for its own
+# "talk-llama" example, against the ggml already built above (see
+# scripts/build-llama.sh for why this avoids a second, duplicate-symbol ggml
+# build). Must come after `whisper`, since it links against whisper.cpp's
+# ggml build output.
+llama: lib/libwhisperdictation_llama.a
+
+lib/libwhisperdictation_llama.a: lib/libwhisper.a
+	./scripts/build-llama.sh
 
 model:
 	./scripts/download-model.sh small.en
@@ -63,11 +74,11 @@ xcrun swiftc \
 	-o $(BUILD_DIR)/WhisperDictation-$(1)
 endef
 
-$(BUILD_DIR)/WhisperDictation-arm64: $(SWIFT_FILES) lib/libwhisper.a
+$(BUILD_DIR)/WhisperDictation-arm64: $(SWIFT_FILES) lib/libwhisper.a lib/libwhisperdictation_llama.a
 	@mkdir -p $(BUILD_DIR)
 	$(call BUILD_SLICE,arm64)
 
-$(BUILD_DIR)/WhisperDictation-x86_64: $(SWIFT_FILES) lib/libwhisper.a
+$(BUILD_DIR)/WhisperDictation-x86_64: $(SWIFT_FILES) lib/libwhisper.a lib/libwhisperdictation_llama.a
 	@mkdir -p $(BUILD_DIR)
 	$(call BUILD_SLICE,x86_64)
 
