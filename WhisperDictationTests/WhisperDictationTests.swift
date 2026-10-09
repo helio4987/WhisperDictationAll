@@ -291,6 +291,38 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.secondaryVocabularyPrompt, "custom secondary vocab")
     }
 
+    // MARK: - Text Rewrite model catalog filters
+
+    func testTextModelMaxSizeGBDefaultsToFourAndClampsNegative() {
+        let key = "textModelMaxSizeGB"
+        let saved = FileBackedDefaults.shared.object(forKey: key)
+        defer {
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
+        }
+        FileBackedDefaults.shared.removeObject(forKey: key)
+        XCTAssertEqual(AppSettings.shared.textModelMaxSizeGB, 4.0)
+
+        let settings = AppSettings.shared
+        settings.textModelMaxSizeGB = -5
+        XCTAssertEqual(settings.textModelMaxSizeGB, 0)
+    }
+
+    func testTextModelPreferredQuantizationDefaultsToQ4KMAndRoundTrips() {
+        let key = "textModelPreferredQuantization"
+        let saved = FileBackedDefaults.shared.object(forKey: key)
+        defer {
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
+        }
+        FileBackedDefaults.shared.removeObject(forKey: key)
+        XCTAssertEqual(AppSettings.shared.textModelPreferredQuantization, "Q4_K_M")
+
+        let settings = AppSettings.shared
+        settings.textModelPreferredQuantization = "Any"
+        XCTAssertEqual(settings.textModelPreferredQuantization, "Any")
+    }
+
     func testIncludeEnglishTermsInSecondaryDefaultsFalseAndRoundTrips() {
         let settings = AppSettings.shared
         let original = settings.includeEnglishTermsInSecondary

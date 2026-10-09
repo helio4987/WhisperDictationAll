@@ -34,6 +34,9 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
         case secondaryIdleTimeoutMinutes
         case secondaryVocabularyPrompt
         case includeEnglishTermsInSecondary
+        // Text Rewrite model catalog filters (see TextModelCatalog)
+        case textModelMaxSizeGB
+        case textModelPreferredQuantization
     }
 
     // MARK: - Properties
@@ -169,6 +172,24 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
         includeEnglishTermsInSecondary
             ? vocabularyPrompt + " " + secondaryVocabularyPrompt
             : secondaryVocabularyPrompt
+    }
+
+    /// Maximum size (in GB) of text-model variants shown in the Text Rewrite
+    /// Settings tab. 0 means "no limit". Defaults to 4 GB: generous for a local
+    /// text-rewrite model while still keeping a repo's variant list from showing
+    /// every quantization level it publishes (some repos ship 15+ variants).
+    var textModelMaxSizeGB: Double {
+        get { max(0, defaults.object(forKey: Key.textModelMaxSizeGB.rawValue) as? Double ?? 4.0) }
+        set { defaults.set(max(0, newValue), forKey: Key.textModelMaxSizeGB.rawValue); objectWillChange.send() }
+    }
+
+    /// Preferred quantization tag (e.g. "Q4_K_M") to filter text-model variants
+    /// by, matched against each variant's parsed `quantizationTag`. "Any"
+    /// disables the filter. Defaults to "Q4_K_M" — the de facto standard
+    /// quality/size sweet spot for GGUF models.
+    var textModelPreferredQuantization: String {
+        get { defaults.string(forKey: Key.textModelPreferredQuantization.rawValue) ?? "Q4_K_M" }
+        set { defaults.set(newValue, forKey: Key.textModelPreferredQuantization.rawValue); objectWillChange.send() }
     }
 
     var launchAtLogin: Bool {

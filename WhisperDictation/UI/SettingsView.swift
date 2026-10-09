@@ -15,6 +15,7 @@ struct SettingsView: View {
         case general = "General"
         case primaryLanguage = "Primary Language"
         case secondaryLanguage = "Secondary Language"
+        case customOperations = "Custom Operations"
         case permissions = "Permissions"
 
         var id: String { rawValue }
@@ -24,6 +25,7 @@ struct SettingsView: View {
             case .general: "gearshape.fill"
             case .primaryLanguage: "flag.fill"
             case .secondaryLanguage: "globe"
+            case .customOperations: "wand.and.stars"
             case .permissions: "lock.shield.fill"
             }
         }
@@ -100,6 +102,8 @@ struct SettingsView: View {
                     PrimaryLanguageSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
                 case .secondaryLanguage:
                     SecondaryLanguageSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
+                case .customOperations:
+                    CustomOperationsSection(settings: settings, colorScheme: colorScheme)
                 case .permissions:
                     PermissionsSection(permissions: permissions, colorScheme: colorScheme)
                 }
@@ -594,6 +598,582 @@ private struct SecondaryLanguageSection: View {
         case let f where f.contains("base"): return "⚡"
         case let f where f.contains("small"): return "🎯"
         default: return "🧠"
+        }
+    }
+}
+
+// MARK: - Text Rewrite Section (model discovery + download — milestone 1)
+
+/// User-defined operations: hold a hotkey, run a local LLM over the current
+/// text selection (with an optional prepend/append around it), replace the
+/// selection with the result. There's no fixed "improve text" mode — the user
+/// freely adds as many operations as they want, each with its own name,
+/// hotkey, model, and prompt framing (see `TextOperation`).
+///
+/// This milestone covers defining operations and the model catalog/download
+/// they draw from — the hotkey, inference, and selection-replace wiring that
+/// actually *runs* an operation land in a later milestone, so there is
+/// intentionally no "Activate"/in-use concept on models here yet, just
+/// Download/Delete, and operations can be fully configured but not yet
+/// triggered.
+private struct CustomOperationsSection: View {
+    @ObservedObject var settings: AppSettings
+    @ObservedObject private var catalog = TextModelCatalog.shared
+    @ObservedObject private var textModelManager = TextModelManager.shared
+    @ObservedObject private var operationStore = TextOperationStore.shared
+    let colorScheme: ColorScheme
+
+    private static let quantizationOptions = ["Any", "Q4_K_M", "Q4_K_S", "Q5_K_M", "Q5_K_S", "Q6_K", "Q8_0"]
+    private static let maxSizeOptions: [Double] = [0, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16]
+
+    @State private var showQuantizationExplainer = false
+
+    /// "No limit" for 0, otherwise a GB value without a trailing ".0" for whole
+    /// numbers (e.g. "4 GB") and one decimal place for fractional ones (e.g.
+    /// "1.5 GB") — avoids "0.5 GB" rendering oddly as "0 GB" or "0.500000 GB".
+    private static func sizeLabel(for value: Double) -> String {
+        guard value > 0 else { return "No limit" }
+        return value.truncatingRemainder(dividingBy: 1) == 0
+            ? "\(Int(value)) GB"
+            : String(format: "%.1f GB", value)
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            SettingsCard(colorScheme: colorScheme) {
+                HStack(alignment: .firstTextBaseline) {
+                    CardHeader(
+                        "Operations",
+                        subtitle: "Each one is a hotkey + model + prompt framing you define — nothing is built in"
+                    )
+                    Spacer()
+                    Button {
+                        operationStore.add(TextOperation())
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                if operationStore.operations.isEmpty {
+                    Text("No operations yet. Add one, then assign it a hotkey, a downloaded model, and optional prompt text to prepend or append around the selection.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ForEach(operationStore.operations) { operation in
+                    CustomOperationRow(
+                        operation: operation,
+                        colorScheme: colorScheme,
+                        operationStore: operationStore,
+                        downloadedVariants: textModelManager.downloadedVariants
+                    )
+                }
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
+                HStack(alignment: .firstTextBaseline) {
+                    CardHeader(
+                        "Variant Filters",
+                        subtitle: "Most models publish many quantization variants — these narrow which show up below"
+                    )
+                    Spacer()
+                    Button {
+                        showQuantizationExplainer = true
+                    } label: {
+                        Image(systemName: "questionmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("What do Q4_K_M, Q5, etc. mean?")
+                    .popover(isPresented: $showQuantizationExplainer, arrowEdge: .trailing) {
+                        QuantizationExplainerView()
+                    }
+                }
+                HStack {
+                    Text("Preferred quantization")
+                        .font(.system(size: 13))
+                    Spacer()
+                    Picker("", selection: $settings.textModelPreferredQuantization) {
+                        ForEach(Self.quantizationOptions, id: \.self) { option in
+                            Text(option == "Q4_K_M" ? "Q4_K_M (Recommended)" : option).tag(option)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                }
+                HStack {
+                    Text("Maximum size")
+                        .font(.system(size: 13))
+                    Spacer()
+                    Picker("", selection: $settings.textModelMaxSizeGB) {
+                        ForEach(Self.maxSizeOptions, id: \.self) { value in
+                            Text(Self.sizeLabel(for: value)).tag(value)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 180)
+                }
+                Text("If no variant matches the preferred quantization, all sizes within the limit are shown instead.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !textModelManager.downloadedVariants.isEmpty {
+                SettingsCard(colorScheme: colorScheme) {
+                    CardHeader(
+                        "Downloaded Models",
+                        subtitle: "Stored on disk, independent of the live list below — stays available even if a model is later renamed or delisted on Hugging Face"
+                    )
+                    ForEach(textModelManager.downloadedVariants) { variant in
+                        TextModelVariantRow(variant: variant, textModelManager: textModelManager)
+                    }
+                }
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
+                HStack(alignment: .firstTextBaseline) {
+                    CardHeader(
+                        "Available Models",
+                        subtitle: "Popular instruct GGUF models from Hugging Face"
+                    )
+                    Spacer()
+                    refreshButton
+                }
+
+                if let lastFetched = catalog.lastFetched {
+                    Text("Last updated \(lastFetched.formatted(.relative(presentation: .named)))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                if let error = catalog.fetchError {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if catalog.candidates.isEmpty && !catalog.isFetching && catalog.fetchError == nil {
+                    Text("No models fetched yet — tap refresh to check Hugging Face for popular options.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+
+                ForEach(catalog.candidates) { candidate in
+                    TextModelCandidateRow(
+                        candidate: candidate,
+                        colorScheme: colorScheme,
+                        catalog: catalog,
+                        textModelManager: textModelManager,
+                        maxSizeGB: settings.textModelMaxSizeGB,
+                        preferredQuantization: settings.textModelPreferredQuantization
+                    )
+                }
+            }
+        }
+        .task {
+            // Auto-fetch only when there's no cache at all yet (first-ever open);
+            // otherwise the cached list from a prior session is shown as-is until
+            // the user explicitly taps refresh.
+            if catalog.candidates.isEmpty && catalog.lastFetched == nil {
+                await catalog.refresh()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var refreshButton: some View {
+        Button {
+            Task { await catalog.refresh() }
+        } label: {
+            if catalog.isFetching {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: "arrow.clockwise")
+            }
+        }
+        .buttonStyle(.borderless)
+        .disabled(catalog.isFetching)
+        .help("Fetch the latest popular models from Hugging Face")
+    }
+}
+
+/// One custom operation: name, hotkey, model (from what's downloaded), and
+/// optional prepend/append prompt text around the selection. Edits are applied
+/// live to the store on each change — there's no separate "Save" step, matching
+/// every other Settings control in this app.
+private struct CustomOperationRow: View {
+    let operation: TextOperation
+    let colorScheme: ColorScheme
+    @ObservedObject var operationStore: TextOperationStore
+    let downloadedVariants: [TextModelVariant]
+
+    @State private var isExpanded = true
+    @State private var hotkeyConflictWarning: String?
+
+    /// Live-bound to the store: reading always goes through `operationStore`
+    /// (so edits from elsewhere, e.g. a future reorder, are reflected), writing
+    /// calls `update` so every field change persists immediately.
+    private var current: TextOperation {
+        operationStore.operations.first { $0.id == operation.id } ?? operation
+    }
+
+    private func binding<Value>(_ keyPath: WritableKeyPath<TextOperation, Value>) -> Binding<Value> {
+        Binding(
+            get: { current[keyPath: keyPath] },
+            set: { newValue in
+                var updated = current
+                updated[keyPath: keyPath] = newValue
+                operationStore.update(updated)
+            }
+        )
+    }
+
+    var body: some View {
+        ModelRow(colorScheme: colorScheme) {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                VStack(alignment: .leading, spacing: 12) {
+                    TextField("Operation name", text: binding(\.name))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Hotkey")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        HotkeyRecorder(keyCode: binding(\.hotkeyKeyCode), colorScheme: colorScheme)
+                            .onChange(of: current.hotkeyKeyCode) { _, newCode in
+                                checkHotkeyConflict(newCode)
+                            }
+                        if let warning = hotkeyConflictWarning {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text(warning)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.system(size: 11))
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Model")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        if downloadedVariants.isEmpty {
+                            Text("No models downloaded yet — download one below, then pick it here.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Picker("", selection: binding(\.modelVariantId)) {
+                                Text("Choose a model").tag(String?.none)
+                                ForEach(downloadedVariants) { variant in
+                                    Text(variant.fileName).tag(String?.some(variant.id))
+                                }
+                            }
+                            .labelsHidden()
+                        }
+                    }
+
+                    promptFramingField(
+                        label: "Prepend before selection",
+                        enabled: binding(\.prependEnabled),
+                        text: binding(\.prependText)
+                    )
+                    promptFramingField(
+                        label: "Append after selection",
+                        enabled: binding(\.appendEnabled),
+                        text: binding(\.appendText)
+                    )
+
+                    Button(role: .destructive) {
+                        operationStore.remove(current)
+                    } label: {
+                        Label("Delete Operation", systemImage: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 12))
+                }
+                .padding(.top, 8)
+            } label: {
+                HStack(spacing: 8) {
+                    Text(current.name)
+                        .font(.system(size: 13, weight: .semibold))
+                    if !current.hasHotkey {
+                        Text("No hotkey")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(0.3)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(.orange.opacity(0.15)))
+                            .foregroundStyle(.orange)
+                    }
+                    if current.modelVariantId == nil {
+                        Text("No model")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(0.3)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(.orange.opacity(0.15)))
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+        }
+        .onAppear { checkHotkeyConflict(current.hotkeyKeyCode) }
+    }
+
+    @ViewBuilder
+    private func promptFramingField(label: String, enabled: Binding<Bool>, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(label, isOn: enabled)
+                .font(.system(size: 12, weight: .medium))
+            if enabled.wrappedValue {
+                TextEditor(text: text)
+                    .font(.system(size: 12, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .frame(minHeight: 60)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(colorScheme == .dark ? Color.black.opacity(0.3) : Color(.textBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08), lineWidth: 0.5)
+                    )
+            }
+        }
+    }
+
+    /// Surfaces a warning (not a hard block — see `TextOperationStore`'s doc
+    /// comment on why conflicts warn rather than prevent) when this operation's
+    /// hotkey matches another operation's, or the app's primary/secondary
+    /// dictation hotkeys.
+    private func checkHotkeyConflict(_ keyCode: Int) {
+        guard keyCode != 0 else {
+            hotkeyConflictWarning = nil
+            return
+        }
+        if let conflict = operationStore.conflictingOperation(forHotkeyKeyCode: keyCode, excluding: current.id) {
+            hotkeyConflictWarning = "Same hotkey as \"\(conflict.name)\"."
+        } else if keyCode == AppSettings.shared.hotkeyKeyCode {
+            hotkeyConflictWarning = "Same hotkey as the Primary Language dictation hotkey."
+        } else if keyCode == AppSettings.shared.secondaryHotkeyKeyCode {
+            hotkeyConflictWarning = "Same hotkey as the Secondary Language dictation hotkey."
+        } else {
+            hotkeyConflictWarning = nil
+        }
+    }
+}
+
+/// One candidate repo. Expands (via `DisclosureGroup`) to load and show its
+/// downloadable `.gguf` variants on demand — avoiding a details fetch per
+/// candidate just to render the collapsed list.
+private struct TextModelCandidateRow: View {
+    let candidate: TextModelCandidate
+    let colorScheme: ColorScheme
+    @ObservedObject var catalog: TextModelCatalog
+    @ObservedObject var textModelManager: TextModelManager
+    let maxSizeGB: Double
+    let preferredQuantization: String
+
+    @State private var isExpanded = false
+    @State private var isLoadingVariants = false
+
+    /// All variants for this repo, after excluding sharded files and applying
+    /// the user's size/quantization filters (see `TextModelCatalog.filterVariants`).
+    private var variants: [TextModelVariant] {
+        let all = catalog.variantsByRepoId[candidate.repoId] ?? []
+        return TextModelCatalog.filterVariants(all, maxSizeGB: maxSizeGB, preferredQuantization: preferredQuantization)
+    }
+
+    private var hasUnfilteredVariants: Bool {
+        !(catalog.variantsByRepoId[candidate.repoId] ?? []).isEmpty
+    }
+
+    var body: some View {
+        ModelRow(colorScheme: colorScheme) {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                VStack(spacing: 8) {
+                    if isLoadingVariants {
+                        ProgressView().controlSize(.small).padding(.top, 8)
+                    } else if variants.isEmpty {
+                        Text(
+                            hasUnfilteredVariants
+                                ? "No variants match the current filters — try raising the size limit or switching quantization to \"Any\"."
+                                : "No downloadable .gguf variants found for this model."
+                        )
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                    } else {
+                        ForEach(variants) { variant in
+                            TextModelVariantRow(variant: variant, textModelManager: textModelManager)
+                        }
+                    }
+                }
+                .padding(.top, 8)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(candidate.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                    HStack(spacing: 12) {
+                        Label("\(candidate.downloads)", systemImage: "arrow.down.circle")
+                        Label("\(candidate.likes)", systemImage: "heart")
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .onChange(of: isExpanded) { _, expanded in
+                guard expanded, variants.isEmpty else { return }
+                isLoadingVariants = true
+                Task {
+                    _ = await catalog.loadVariants(for: candidate)
+                    isLoadingVariants = false
+                }
+            }
+        }
+    }
+}
+
+/// One quantization variant (a single `.gguf` file) with its download controls.
+/// Mirrors the Download/Downloading/Downloaded shape of the Whisper model rows,
+/// minus the "Activate" state — no variant is "in use" yet in this milestone.
+private struct TextModelVariantRow: View {
+    let variant: TextModelVariant
+    @ObservedObject var textModelManager: TextModelManager
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(variant.fileName)
+                        .font(.system(size: 12, design: .monospaced))
+                    if variant.quantizationTag == "Q4_K_M" {
+                        Text("Recommended")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(0.3)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(.green.opacity(0.15)))
+                            .foregroundStyle(.green)
+                    }
+                }
+                Text(variant.sizeDisplay)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if textModelManager.isDownloaded(variant) {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: 16))
+                    Button {
+                        try? textModelManager.deleteModel(variant)
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete downloaded model")
+                }
+            } else if textModelManager.isDownloading(variant) {
+                HStack(spacing: 8) {
+                    ProgressView(value: textModelManager.downloadProgress(for: variant) ?? 0)
+                        .frame(width: 60)
+                    Button {
+                        textModelManager.cancelDownload(variant)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                Button("Download") {
+                    textModelManager.startDownload(variant)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+
+        if let error = textModelManager.downloadError {
+            Text(error)
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
+        }
+    }
+}
+
+/// Plain-language explainer for GGUF quantization naming (Q4_K_M, IQ3_M, etc.),
+/// shown from the "?" button next to Variant Filters. Static reference content —
+/// the three naming components (bit-width, k-quant vs IQ family, S/M/L size tier)
+/// are standard across quantizers (bartowski, unsloth, mradermacher) and don't
+/// change per model.
+private struct QuantizationExplainerView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Understanding Quantization Names")
+                    .font(.system(size: 14, weight: .semibold))
+
+                explainerSection(
+                    title: "The number (Q4, Q5, Q6, Q8)",
+                    body: "Roughly how many bits are used per weight. Lower means a smaller, faster model with more precision lost. Q4 is the most common balance of size and quality; Q8 is close to the original, uncompressed model."
+                )
+
+                explainerSection(
+                    title: "The _K suffix",
+                    body: "Means it uses \"k-quants\" — a mixed-precision scheme where a few sensitive layers get extra precision. Noticeably better quality than the same bit-width without _K, for the same file size."
+                )
+
+                explainerSection(
+                    title: "The _S / _M / _L suffix",
+                    body: "Small, Medium, or Large — how many layers get that extra precision bump within a given bit-width. _M is the usual recommended default: a balanced mix of size and quality. _S is smaller but slightly lower quality; _L is bigger but closer to the next tier up."
+                )
+
+                explainerSection(
+                    title: "IQ variants (IQ4_XS, IQ3_M, ...)",
+                    body: "A newer, more compressed family that can match a higher bit-width's quality at a smaller size, but runs slower on CPU and needs a recent llama.cpp — less universally compatible than plain Q*_K variants."
+                )
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Recommended: Q4_K_M")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Good quality, small, and fast — the standard default for local use. Go up to Q5_K_M or Q6_K if you have the RAM/disk to spare and want noticeably better output.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+        }
+        .frame(width: 320, height: 420)
+    }
+
+    @ViewBuilder
+    private func explainerSection(title: String, body: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+            Text(body)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
