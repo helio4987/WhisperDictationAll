@@ -132,6 +132,41 @@ final class TextOperationStoreTests: XCTestCase {
         XCTAssertNil(store.conflictingOperation(forHotkeyKeyCode: 0, excluding: UUID()))
     }
 
+    func testOperationsReferencingReturnsOnlyMatchingOperations() {
+        let store = freshStore()
+        let referencing = TextOperation(name: "Uses model A", modelVariantId: "org/Repo/model-a.gguf")
+        let other = TextOperation(name: "Uses model B", modelVariantId: "org/Repo/model-b.gguf")
+        let unassigned = TextOperation(name: "No model")
+        store.add(referencing)
+        store.add(other)
+        store.add(unassigned)
+
+        let result = store.operationsReferencing(modelVariantId: "org/Repo/model-a.gguf")
+
+        XCTAssertEqual(result.map(\.id), [referencing.id])
+    }
+
+    func testOperationsReferencingIncludesOperationsWithoutAHotkey() {
+        // An operation without a hotkey yet is still a saved configuration
+        // pointing at the model — deleting the model out from under it should
+        // still be blocked (see TextModelVariantRow's delete guard), not just
+        // for operations that already have a hotkey assigned.
+        let store = freshStore()
+        let noHotkeyYet = TextOperation(name: "Draft", hotkeyKeyCode: 0, modelVariantId: "org/Repo/model-a.gguf")
+        store.add(noHotkeyYet)
+
+        let result = store.operationsReferencing(modelVariantId: "org/Repo/model-a.gguf")
+
+        XCTAssertEqual(result.map(\.id), [noHotkeyYet.id])
+    }
+
+    func testOperationsReferencingReturnsEmptyForUnreferencedModel() {
+        let store = freshStore()
+        store.add(TextOperation(name: "Uses model A", modelVariantId: "org/Repo/model-a.gguf"))
+
+        XCTAssertTrue(store.operationsReferencing(modelVariantId: "org/Repo/model-z.gguf").isEmpty)
+    }
+
     func testMoveReordersOperations() {
         let store = freshStore()
         let a = TextOperation(name: "A")

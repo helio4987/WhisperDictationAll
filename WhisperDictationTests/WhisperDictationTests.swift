@@ -323,6 +323,21 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.textModelPreferredQuantization, "Any")
     }
 
+    func testTextOperationsIdleTimeoutDefaultsToTenMinutesAndClampsNegative() {
+        let key = "textOperationsIdleTimeoutMinutes"
+        let saved = FileBackedDefaults.shared.object(forKey: key)
+        defer {
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
+        }
+        FileBackedDefaults.shared.removeObject(forKey: key)
+        XCTAssertEqual(AppSettings.shared.textOperationsIdleTimeoutMinutes, 10)
+
+        let settings = AppSettings.shared
+        settings.textOperationsIdleTimeoutMinutes = -3
+        XCTAssertEqual(settings.textOperationsIdleTimeoutMinutes, 0)
+    }
+
     func testIncludeEnglishTermsInSecondaryDefaultsFalseAndRoundTrips() {
         let settings = AppSettings.shared
         let original = settings.includeEnglishTermsInSecondary

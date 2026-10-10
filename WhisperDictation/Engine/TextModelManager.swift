@@ -201,35 +201,92 @@ final class TextModelManager: ObservableObject {
     }
 }
 
-/// Loads and caches `TextGenerationBridge` instances by model file path, so
-/// running the same operation twice (or two operations sharing one model)
-/// doesn't reload the model from disk each time. Deliberately minimal for
-/// this milestone: no idle-unload, no lazy background pre-warm — just enough
-/// to prove end-to-end inference works via a manual "Test" action in
-/// Settings. Idle-unload (mirroring `LanguageModelSlot`) is the natural next
-/// step once operations are actually triggered via hotkey rather than a
-/// manual test button, so a model doesn't sit resident in memory indefinitely
-/// after a single ad-hoc test run.
+/// Loads, caches, and auto-unloads `TextGenerationBridge` instances by model
+/// file path — the shared backing for every Custom Operation's inference.
+/// One `LanguageModelSlot` per distinct model path, created lazily the first
+/// time that path is used: two operations that reference the same downloaded
+/// model share one loaded instance (and one idle timer) rather than each
+/// loading their own copy. Idle-unload uses a single global setting
+/// (`AppSettings.textOperationsIdleTimeoutMinutes`) rather than one timeout
+/// per operation — the resource being managed is "a loaded model file", and
+/// there can be more operations than models (several operations sharing one
+/// model), so a per-operation timeout wouldn't map onto anything coherent to
+/// unload.
 @MainActor
-final class TextGenerationManager {
+final class TextGenerationManager: ObservableObject {
     static let shared = TextGenerationManager()
 
-    private var bridgesByPath: [String: TextGenerationBridge] = [:]
+    private var slotsByPath: [String: LanguageModelSlot<TextGenerationBridge>] = [:]
+
+    /// Mirrors each path's `LanguageModelSlot.LoadState`, kept in sync via each
+    /// slot's `onStateChange` — lets Settings show per-model loaded/unloaded
+    /// state without polling, same pattern as `DictationEngine`'s
+    /// `primaryModelLoadState`/`secondaryModelLoadState`.
+    @Published private(set) var loadStatesByPath: [String: LanguageModelSlot<TextGenerationBridge>.LoadState] = [:]
 
     private init() {}
 
-    /// Loads (or reuses an already-loaded) bridge for the model at `path`.
-    /// Runs the load off the main actor — model loading reads a multi-hundred-
-    /// MB-to-several-GB file and parses GGUF metadata, which must not block UI.
+    /// Loads (or reuses an already-loaded) bridge for the model at `path`,
+    /// creating that path's slot on first use. Resets the shared idle timer
+    /// on every call, same as any other `LanguageModelSlot.ensureLoaded()`.
     func bridge(forModelPath path: String) async throws -> TextGenerationBridge {
-        if let existing = bridgesByPath[path] {
+        let slot = await slot(forModelPath: path)
+        return try await slot.ensureLoaded()
+    }
+
+    /// Current load state for `path`, or `.unloaded` if that path has never
+    /// been used (no slot created yet) — matches a freshly-constructed
+    /// `LanguageModelSlot`'s initial state, so callers don't need to
+    /// special-case "never touched" vs. "touched and unloaded".
+    func loadState(forModelPath path: String) -> LanguageModelSlot<TextGenerationBridge>.LoadState {
+        loadStatesByPath[path] ?? .unloaded
+    }
+
+    /// Explicitly unloads the model at `path`, if a slot exists for it. A
+    /// no-op for a path that was never loaded (mirrors
+    /// `LanguageModelSlot.unload()`'s own idempotence).
+    func unload(modelPath path: String) async {
+        guard let slot = slotsByPath[path] else { return }
+        await slot.unload()
+    }
+
+    /// Unloads every currently-loaded Custom Operations model. Backs a single
+    /// "Unload All" control in Settings so the user doesn't need to hunt down
+    /// which individual models are resident — useful right after a batch of
+    /// manual Test runs, or before a demanding non-AI task that needs the RAM.
+    func unloadAll() async {
+        for slot in slotsByPath.values {
+            await slot.unload()
+        }
+    }
+
+    /// Creates (if needed) and returns the slot for `path`. `async` so the new
+    /// slot's `onStateChange` callback is registered — and guaranteed in place —
+    /// before `bridge(forModelPath:)` calls `ensureLoaded()` on it; otherwise
+    /// the very first `.loading` transition could fire before anything is
+    /// listening for it.
+    private func slot(forModelPath path: String) async -> LanguageModelSlot<TextGenerationBridge> {
+        if let existing = slotsByPath[path] {
             return existing
         }
-        let bridge = try await Task.detached(priority: .userInitiated) {
-            try TextGenerationBridge(modelPath: path)
-        }.value
-        bridgesByPath[path] = bridge
-        return bridge
+        let newSlot = LanguageModelSlot<TextGenerationBridge>(
+            idleTimeoutMinutes: { AppSettings.shared.textOperationsIdleTimeoutMinutes },
+            load: {
+                try await Task.detached(priority: .userInitiated) {
+                    try TextGenerationBridge(modelPath: path)
+                }.value
+            },
+            unload: { bridge in
+                bridge.shutdownAndFree()
+            }
+        )
+        slotsByPath[path] = newSlot
+        await newSlot.setOnStateChange { [weak self] newState, _ in
+            Task { @MainActor in
+                self?.loadStatesByPath[path] = newState
+            }
+        }
+        return newSlot
     }
 }
 

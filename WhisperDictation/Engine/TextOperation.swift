@@ -119,6 +119,19 @@ final class TextOperationStore: ObservableObject {
         return operations.first { $0.id != excluding && $0.hotkeyKeyCode == keyCode }
     }
 
+    /// Every operation that references `modelVariantId`, regardless of
+    /// whether that operation currently has a hotkey assigned — used to block
+    /// deleting a downloaded model that's still configured as an operation's
+    /// model (see `TextModelVariantRow`'s delete guard). Deliberately not
+    /// scoped to hotkey-bound operations only: an operation without a hotkey
+    /// yet is still a saved configuration pointing at this model, and letting
+    /// its model disappear out from under it would only surface as a failure
+    /// later, once a hotkey is added — worse timing than blocking the delete
+    /// now, when the user has full context on why.
+    func operationsReferencing(modelVariantId: String) -> [TextOperation] {
+        operations.filter { $0.modelVariantId == modelVariantId }
+    }
+
     private func load() {
         guard let data = try? Data(contentsOf: fileURL),
               let decoded = try? JSONDecoder().decode([TextOperation].self, from: data)

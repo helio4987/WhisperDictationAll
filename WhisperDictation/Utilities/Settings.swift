@@ -37,6 +37,8 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
         // Text Rewrite model catalog filters (see TextModelCatalog)
         case textModelMaxSizeGB
         case textModelPreferredQuantization
+        // Custom Operations (see TextOperation, TextGenerationManager)
+        case textOperationsIdleTimeoutMinutes
     }
 
     // MARK: - Properties
@@ -125,6 +127,18 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
     var secondaryIdleTimeoutMinutes: Double {
         get { max(0, defaults.object(forKey: Key.secondaryIdleTimeoutMinutes.rawValue) as? Double ?? 10) }
         set { defaults.set(max(0, newValue), forKey: Key.secondaryIdleTimeoutMinutes.rawValue); objectWillChange.send() }
+    }
+
+    /// Minutes of no use before a Custom Operation's text-generation model is
+    /// automatically unloaded from memory. Shared across every operation's
+    /// model (not one setting per operation) since there can be any number of
+    /// operations and they may share models — a single global timeout is the
+    /// one that actually maps to a resource (loaded models), not to the
+    /// operations referencing them. 0 disables auto-unload. Default 10
+    /// minutes, matching the secondary dictation hotkey's default.
+    var textOperationsIdleTimeoutMinutes: Double {
+        get { max(0, defaults.object(forKey: Key.textOperationsIdleTimeoutMinutes.rawValue) as? Double ?? 10) }
+        set { defaults.set(max(0, newValue), forKey: Key.textOperationsIdleTimeoutMinutes.rawValue); objectWillChange.send() }
     }
 
     var soundFeedbackEnabled: Bool {

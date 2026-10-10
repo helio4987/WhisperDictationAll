@@ -620,6 +620,7 @@ private struct CustomOperationsSection: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject private var catalog = TextModelCatalog.shared
     @ObservedObject private var textModelManager = TextModelManager.shared
+    @ObservedObject private var textGenerationManager = TextGenerationManager.shared
     @ObservedObject private var operationStore = TextOperationStore.shared
     let colorScheme: ColorScheme
 
@@ -670,6 +671,30 @@ private struct CustomOperationsSection: View {
                         operationStore: operationStore,
                         downloadedVariants: textModelManager.downloadedVariants
                     )
+                }
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader(
+                    "Model Memory",
+                    subtitle: "Applies to every Custom Operation's model — they share one idle timer per model file"
+                )
+                IdleTimeoutControl(
+                    label: "Unload models when idle",
+                    minutes: $settings.textOperationsIdleTimeoutMinutes
+                )
+                HStack {
+                    let loadedCount = textGenerationManager.loadStatesByPath.values.filter { $0 == .ready }.count
+                    Text(loadedCount == 0 ? "No models currently loaded in memory." : "\(loadedCount) model\(loadedCount == 1 ? "" : "s") currently loaded in memory.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Unload All") {
+                        Task { await textGenerationManager.unloadAll() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(loadedCount == 0)
                 }
             }
 
@@ -1143,6 +1168,13 @@ private struct TextModelCandidateRow: View {
 private struct TextModelVariantRow: View {
     let variant: TextModelVariant
     @ObservedObject var textModelManager: TextModelManager
+    @ObservedObject private var operationStore = TextOperationStore.shared
+
+    @State private var showInUseAlert = false
+
+    private var referencingOperations: [TextOperation] {
+        operationStore.operationsReferencing(modelVariantId: variant.id)
+    }
 
     var body: some View {
         HStack {
@@ -1173,7 +1205,11 @@ private struct TextModelVariantRow: View {
                         .foregroundStyle(.green)
                         .font(.system(size: 16))
                     Button {
-                        try? textModelManager.deleteModel(variant)
+                        if referencingOperations.isEmpty {
+                            try? textModelManager.deleteModel(variant)
+                        } else {
+                            showInUseAlert = true
+                        }
                     } label: {
                         Image(systemName: "trash")
                             .font(.system(size: 12))
@@ -1181,6 +1217,11 @@ private struct TextModelVariantRow: View {
                     }
                     .buttonStyle(.plain)
                     .help("Delete downloaded model")
+                    .alert("Model In Use", isPresented: $showInUseAlert) {
+                        Button("OK", role: .cancel) {}
+                    } message: {
+                        Text(inUseAlertMessage)
+                    }
                 }
             } else if textModelManager.isDownloading(variant) {
                 HStack(spacing: 8) {
@@ -1208,6 +1249,14 @@ private struct TextModelVariantRow: View {
                 .font(.system(size: 11))
                 .foregroundStyle(.orange)
         }
+    }
+
+    private var inUseAlertMessage: String {
+        let names = referencingOperations.map { op in
+            op.hasHotkey ? "\"\(op.name)\"" : "\"\(op.name)\" (no hotkey set)"
+        }
+        let list = names.joined(separator: ", ")
+        return "This model is assigned to \(referencingOperations.count == 1 ? "operation" : "operations") \(list). Unassign it from the Model picker on those operations' rows above before deleting."
     }
 }
 

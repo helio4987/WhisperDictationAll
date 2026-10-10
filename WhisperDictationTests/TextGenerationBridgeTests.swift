@@ -55,4 +55,39 @@ final class TextGenerationManagerTests: XCTestCase {
             XCTFail("Expected TextGenerationError, got \(error)")
         }
     }
+
+    func testLoadStateReflectsFailureAfterInvalidPath() async {
+        let manager = TextGenerationManager.shared
+        let path = "/nonexistent/load-state-test-\(UUID().uuidString).gguf"
+
+        _ = try? await manager.bridge(forModelPath: path)
+
+        if case .failed = manager.loadState(forModelPath: path) {
+            // expected
+        } else {
+            XCTFail("Expected .failed state, got \(manager.loadState(forModelPath: path))")
+        }
+    }
+
+    func testLoadStateIsUnloadedForAPathNeverUsed() {
+        let manager = TextGenerationManager.shared
+        let path = "/never/touched/\(UUID().uuidString).gguf"
+        XCTAssertEqual(manager.loadState(forModelPath: path), .unloaded)
+    }
+
+    func testUnloadIsNoOpForAPathWithNoSlot() async {
+        let manager = TextGenerationManager.shared
+        let path = "/never/loaded/\(UUID().uuidString).gguf"
+        // Must not crash/throw — mirrors LanguageModelSlot.unload()'s own
+        // idempotence for a slot that was never loaded.
+        await manager.unload(modelPath: path)
+        XCTAssertEqual(manager.loadState(forModelPath: path), .unloaded)
+    }
+
+    func testUnloadAllCompletesWithoutThrowing() async {
+        // Must not crash regardless of how many slots exist (zero, from a
+        // never-touched path, or more from earlier tests in this run) — e.g.
+        // the very first time Settings' "Unload All" is tapped.
+        await TextGenerationManager.shared.unloadAll()
+    }
 }
