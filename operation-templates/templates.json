@@ -1,4 +1,95 @@
 {
   "schemaVersion": 1,
-  "templates": []
+  "templates": [
+    {
+      "id": "fix-grammar",
+      "name": "Fix Grammar & Spelling",
+      "description": "Corrects grammar, spelling, and punctuation without changing tone or meaning.",
+      "prependEnabled": true,
+      "prependText": "Fix the grammar, spelling, and punctuation in the following text. Keep the tone and meaning exactly the same. Respond with only the corrected text, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "Works well with any Q4_K_M instruct model, even 1-3B."
+    },
+    {
+      "id": "improve-writing",
+      "name": "Improve Writing",
+      "description": "Improves clarity and flow while preserving the original meaning.",
+      "prependEnabled": true,
+      "prependText": "Improve the clarity and flow of the following text. Preserve the original meaning and the author's voice as much as possible. Respond with only the improved text, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "A 3B+ model gives noticeably better results than 1B for this one."
+    },
+    {
+      "id": "make-formal",
+      "name": "Make More Formal",
+      "description": "Rewrites casual text in a professional, formal tone — e.g. for a business email.",
+      "prependEnabled": true,
+      "prependText": "Rewrite the following text in a more formal, professional tone, suitable for a business email. Keep the core meaning unchanged. Respond with only the rewritten text, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "Works well with any Q4_K_M instruct model, even 1-3B."
+    },
+    {
+      "id": "make-casual",
+      "name": "Make More Casual",
+      "description": "Rewrites formal text in a relaxed, conversational tone.",
+      "prependEnabled": true,
+      "prependText": "Rewrite the following text in a more casual, conversational tone, as if talking to a friend. Keep the core meaning unchanged. Respond with only the rewritten text, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "Works well with any Q4_K_M instruct model, even 1-3B."
+    },
+    {
+      "id": "make-concise",
+      "name": "Make Concise",
+      "description": "Shortens the text while keeping the key meaning intact.",
+      "prependEnabled": true,
+      "prependText": "Make the following text more concise. Remove redundant words and filler without losing any key information. Respond with only the shortened text, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "Works well with any Q4_K_M instruct model, even 1-3B."
+    },
+    {
+      "id": "expand-elaborate",
+      "name": "Expand & Elaborate",
+      "description": "Adds detail and explanation to a short note or outline.",
+      "prependEnabled": true,
+      "prependText": "Expand the following text with more detail and explanation, while staying consistent with what's already written. Respond with only the expanded text, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "A 3B+ model gives more coherent, less repetitive results than 1B for this one."
+    },
+    {
+      "id": "summarize",
+      "name": "Summarize",
+      "description": "Condenses a long passage down to its key points.",
+      "prependEnabled": true,
+      "prependText": "Summarize the following text, capturing only the key points. Respond with only the summary, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "Works well with any Q4_K_M instruct model, even 1-3B."
+    },
+    {
+      "id": "bullet-points",
+      "name": "Convert to Bullet Points",
+      "description": "Reformats prose into a clear bullet-point list.",
+      "prependEnabled": true,
+      "prependText": "Convert the following text into a clear, well-organized bullet-point list. Respond with only the bullet points, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "Works well with any Q4_K_M instruct model, even 1-3B."
+    },
+    {
+      "id": "explain-simply",
+      "name": "Explain Simply",
+      "description": "Rewrites jargon-heavy or complex text in plain, simple language.",
+      "prependEnabled": true,
+      "prependText": "Rewrite the following text in plain, simple language that a non-expert could easily understand. Avoid jargon. Respond with only the rewritten text, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "A 3B+ model handles this better than 1B — simplifying well requires some reasoning."
+    }
+  ]
 }
