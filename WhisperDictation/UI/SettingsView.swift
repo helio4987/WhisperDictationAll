@@ -698,12 +698,53 @@ private struct CustomOperationsSection: View {
                 }
             }
 
+            if !textModelManager.downloadedVariants.isEmpty {
+                SettingsCard(colorScheme: colorScheme) {
+                    CardHeader(
+                        "Downloaded Models",
+                        subtitle: "Stored on disk, independent of the live list below — stays available even if a model is later renamed or delisted on Hugging Face"
+                    )
+                    ForEach(textModelManager.downloadedVariants) { variant in
+                        TextModelVariantRow(variant: variant, textModelManager: textModelManager)
+                    }
+                }
+            }
+
             SettingsCard(colorScheme: colorScheme) {
                 HStack(alignment: .firstTextBaseline) {
                     CardHeader(
-                        "Variant Filters",
-                        subtitle: "Most models publish many quantization variants — these narrow which show up below"
+                        "Available Models",
+                        subtitle: "Popular instruct GGUF models from Hugging Face"
                     )
+                    Spacer()
+                    refreshButton
+                }
+
+                if let lastFetched = catalog.lastFetched {
+                    Text("Last updated \(lastFetched.formatted(.relative(presentation: .named)))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                if let error = catalog.fetchError {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Divider()
+
+                // Variant filters live here rather than their own card: they
+                // only affect which variants show up in this list, so keeping
+                // them in the same card as what they filter avoids the reader
+                // having to connect two separate cards mentally.
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Variant Filters")
+                        .font(.system(size: 12, weight: .semibold))
                     Spacer()
                     Button {
                         showQuantizationExplainer = true
@@ -744,45 +785,8 @@ private struct CustomOperationsSection: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
 
-            if !textModelManager.downloadedVariants.isEmpty {
-                SettingsCard(colorScheme: colorScheme) {
-                    CardHeader(
-                        "Downloaded Models",
-                        subtitle: "Stored on disk, independent of the live list below — stays available even if a model is later renamed or delisted on Hugging Face"
-                    )
-                    ForEach(textModelManager.downloadedVariants) { variant in
-                        TextModelVariantRow(variant: variant, textModelManager: textModelManager)
-                    }
-                }
-            }
-
-            SettingsCard(colorScheme: colorScheme) {
-                HStack(alignment: .firstTextBaseline) {
-                    CardHeader(
-                        "Available Models",
-                        subtitle: "Popular instruct GGUF models from Hugging Face"
-                    )
-                    Spacer()
-                    refreshButton
-                }
-
-                if let lastFetched = catalog.lastFetched {
-                    Text("Last updated \(lastFetched.formatted(.relative(presentation: .named)))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-
-                if let error = catalog.fetchError {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text(error)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                Divider()
 
                 if catalog.candidates.isEmpty && !catalog.isFetching && catalog.fetchError == nil {
                     Text("No models fetched yet — tap refresh to check Hugging Face for popular options.")
