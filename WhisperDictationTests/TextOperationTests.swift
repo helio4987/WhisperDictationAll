@@ -42,6 +42,65 @@ final class TextOperationPromptTests: XCTestCase {
         XCTAssertEqual(operation.buildPrompt(forSelection: "hello"), "hello")
     }
 
+    func testTestSampleTextDefaultsToTheSameWeatherSentenceAsBefore() {
+        XCTAssertEqual(TextOperation().testSampleText, "The weather today is pretty nice outside.")
+    }
+
+    func testLastTestOutputAndErrorDefaultToNil() {
+        let operation = TextOperation()
+        XCTAssertNil(operation.lastTestOutput)
+        XCTAssertNil(operation.lastTestError)
+    }
+
+    func testEncodingRoundTripsAllFieldsIncludingTestState() throws {
+        let original = TextOperation(
+            name: "Translate",
+            hotkeyKeyCode: 58,
+            modelVariantId: "org/Repo/model-Q4_K_M.gguf",
+            prependEnabled: true,
+            prependText: "Translate to French:",
+            appendEnabled: false,
+            appendText: "",
+            testSampleText: "Hello there",
+            lastTestOutput: "Bonjour",
+            lastTestError: nil
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(TextOperation.self, from: data)
+
+        XCTAssertEqual(decoded, original)
+    }
+
+    /// Regression test: an operation saved before testSampleText/
+    /// lastTestOutput/lastTestError existed (an older
+    /// customOperations.json on disk) must still decode — the synthesized
+    /// Codable this type used to have would otherwise require every key to
+    /// be present and fail the whole decode, making it LOOK like the
+    /// operation (hotkey, model, prompt — everything) had been lost on
+    /// restart, when actually the whole array failed to decode.
+    func testDecodingOlderSavedOperationWithoutTestFieldsFallsBackToDefaults() throws {
+        let legacyJSON = """
+        {
+            "id": "A402B1D3-34D6-4B99-A526-22F420E2044C",
+            "name": "Renamed",
+            "hotkeyKeyCode": 0,
+            "modelVariantId": "LiquidAI/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
+            "prependEnabled": false,
+            "prependText": "",
+            "appendEnabled": false,
+            "appendText": ""
+        }
+        """
+        let decoded = try JSONDecoder().decode(TextOperation.self, from: Data(legacyJSON.utf8))
+
+        XCTAssertEqual(decoded.name, "Renamed")
+        XCTAssertEqual(decoded.modelVariantId, "LiquidAI/LFM2.5-1.2B-Instruct-GGUF/LFM2.5-1.2B-Instruct-Q4_K_M.gguf")
+        XCTAssertEqual(decoded.testSampleText, "The weather today is pretty nice outside.")
+        XCTAssertNil(decoded.lastTestOutput)
+        XCTAssertNil(decoded.lastTestError)
+    }
+
     func testHasHotkeyFalseForUnassignedZero() {
         XCTAssertFalse(TextOperation(hotkeyKeyCode: 0).hasHotkey)
     }

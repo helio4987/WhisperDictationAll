@@ -29,6 +29,17 @@ struct TextOperation: Identifiable, Codable, Equatable {
     var prependText: String
     var appendEnabled: Bool
     var appendText: String
+    /// Sample text for the Settings "Run Test" control, persisted per
+    /// operation so it survives an app restart along with everything else —
+    /// otherwise it's reset to the hardcoded default every time Settings
+    /// reopens, which looked like the whole operation hadn't been saved.
+    var testSampleText: String
+    /// Last test run's output and error, shown inline under the Test
+    /// section until the next test run replaces them. Persisted for the
+    /// same reason as `testSampleText` — losing a result on restart (or
+    /// just reopening Settings) made it look like nothing had been kept.
+    var lastTestOutput: String?
+    var lastTestError: String?
 
     init(
         id: UUID = UUID(),
@@ -38,7 +49,10 @@ struct TextOperation: Identifiable, Codable, Equatable {
         prependEnabled: Bool = false,
         prependText: String = "",
         appendEnabled: Bool = false,
-        appendText: String = ""
+        appendText: String = "",
+        testSampleText: String = "The weather today is pretty nice outside.",
+        lastTestOutput: String? = nil,
+        lastTestError: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -48,6 +62,49 @@ struct TextOperation: Identifiable, Codable, Equatable {
         self.prependText = prependText
         self.appendEnabled = appendEnabled
         self.appendText = appendText
+        self.testSampleText = testSampleText
+        self.lastTestOutput = lastTestOutput
+        self.lastTestError = lastTestError
+    }
+
+    // Custom Codable so operations saved before testSampleText/lastTestOutput/
+    // lastTestError existed still decode — the synthesized Codable would
+    // otherwise require every key to be present and fail on older saved files.
+    private enum CodingKeys: String, CodingKey {
+        case id, name, hotkeyKeyCode, modelVariantId
+        case prependEnabled, prependText, appendEnabled, appendText
+        case testSampleText, lastTestOutput, lastTestError
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        hotkeyKeyCode = try container.decode(Int.self, forKey: .hotkeyKeyCode)
+        modelVariantId = try container.decodeIfPresent(String.self, forKey: .modelVariantId)
+        prependEnabled = try container.decode(Bool.self, forKey: .prependEnabled)
+        prependText = try container.decode(String.self, forKey: .prependText)
+        appendEnabled = try container.decode(Bool.self, forKey: .appendEnabled)
+        appendText = try container.decode(String.self, forKey: .appendText)
+        testSampleText = try container.decodeIfPresent(String.self, forKey: .testSampleText)
+            ?? "The weather today is pretty nice outside."
+        lastTestOutput = try container.decodeIfPresent(String.self, forKey: .lastTestOutput)
+        lastTestError = try container.decodeIfPresent(String.self, forKey: .lastTestError)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(hotkeyKeyCode, forKey: .hotkeyKeyCode)
+        try container.encodeIfPresent(modelVariantId, forKey: .modelVariantId)
+        try container.encode(prependEnabled, forKey: .prependEnabled)
+        try container.encode(prependText, forKey: .prependText)
+        try container.encode(appendEnabled, forKey: .appendEnabled)
+        try container.encode(appendText, forKey: .appendText)
+        try container.encode(testSampleText, forKey: .testSampleText)
+        try container.encodeIfPresent(lastTestOutput, forKey: .lastTestOutput)
+        try container.encodeIfPresent(lastTestError, forKey: .lastTestError)
     }
 
     /// Builds the full prompt sent to the model for a given selection: prepend

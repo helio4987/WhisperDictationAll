@@ -845,9 +845,10 @@ private struct CustomOperationRow: View {
 
     @State private var isExpanded = true
     @State private var hotkeyConflictWarning: String?
-    @State private var testInput = "The weather today is pretty nice outside."
-    @State private var testOutput: String?
-    @State private var testError: String?
+    /// Only `isTestRunning` stays local — the sample text and last
+    /// result/error are persisted on the operation itself (`testSampleText`/
+    /// `lastTestOutput`/`lastTestError`) so they survive closing Settings or
+    /// restarting the app, same as every other field on this row.
     @State private var isTestRunning = false
 
     /// Live-bound to the store: reading always goes through `operationStore`
@@ -990,7 +991,10 @@ private struct CustomOperationRow: View {
     /// Runs this operation end-to-end against sample text, without needing a
     /// hotkey or a real text selection — proves the model loads and generates
     /// before the hotkey/selection-capture wiring exists. Edits the sample
-    /// text inline so the user can try their own example.
+    /// text inline so the user can try their own example. The sample text
+    /// and last result/error are persisted on the operation itself (via
+    /// `binding(\.testSampleText)` etc.), so they're still here after
+    /// closing Settings or restarting the app.
     @ViewBuilder
     private var testSection: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -998,7 +1002,7 @@ private struct CustomOperationRow: View {
             Text("Test")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
-            TextField("Sample text to run this operation on", text: $testInput)
+            TextField("Sample text to run this operation on", text: binding(\.testSampleText))
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 12))
 
@@ -1017,11 +1021,11 @@ private struct CustomOperationRow: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(isTestRunning || current.modelVariantId == nil || testInput.isEmpty)
+                .disabled(isTestRunning || current.modelVariantId == nil || current.testSampleText.isEmpty)
                 Spacer()
             }
 
-            if let testOutput {
+            if let testOutput = current.lastTestOutput {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Result")
                         .font(.system(size: 11, weight: .medium))
@@ -1037,7 +1041,7 @@ private struct CustomOperationRow: View {
                 }
             }
 
-            if let testError {
+            if let testError = current.lastTestError {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
@@ -1055,21 +1059,33 @@ private struct CustomOperationRow: View {
         else { return }
 
         isTestRunning = true
-        testOutput = nil
-        testError = nil
+        var cleared = current
+        cleared.lastTestOutput = nil
+        cleared.lastTestError = nil
+        operationStore.update(cleared)
 
         let operationSnapshot = current
         let modelPath = TextModelManager.shared.localPath(for: variant).path
 
         Task {
+            var result = operationSnapshot
             do {
                 let bridge = try await TextGenerationManager.shared.bridge(forModelPath: modelPath)
-                let prompt = operationSnapshot.buildPrompt(forSelection: testInput)
-                let result = try await bridge.generate(prompt: prompt)
-                testOutput = result
+                let prompt = operationSnapshot.buildPrompt(forSelection: operationSnapshot.testSampleText)
+                result.lastTestOutput = try await bridge.generate(prompt: prompt)
+                result.lastTestError = nil
             } catch {
-                testError = error.localizedDescription
+                result.lastTestOutput = nil
+                result.lastTestError = error.localizedDescription
             }
+            // Re-read the current operation rather than reusing the stale
+            // snapshot, in case the user edited another field (name, hotkey,
+            // prompt text) while the test was running — only the test
+            // output/error fields should be overwritten by this result.
+            var updated = current
+            updated.lastTestOutput = result.lastTestOutput
+            updated.lastTestError = result.lastTestError
+            operationStore.update(updated)
             isTestRunning = false
         }
     }
