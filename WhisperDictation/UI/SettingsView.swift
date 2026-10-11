@@ -667,39 +667,6 @@ private struct CustomOperationsSection: View {
     var body: some View {
         VStack(spacing: 14) {
             SettingsCard(colorScheme: colorScheme) {
-                HStack(alignment: .firstTextBaseline) {
-                    CardHeader(
-                        "Operations",
-                        subtitle: "Each one is a hotkey + model + prompt framing you define — nothing is built in"
-                    )
-                    Spacer()
-                    Button {
-                        operationStore.add(TextOperation())
-                    } label: {
-                        Label("Add", systemImage: "plus")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-
-                if operationStore.operations.isEmpty {
-                    Text("No operations yet. Add one, then assign it a hotkey, a downloaded model, and optional prompt text to prepend or append around the selection.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                ForEach(operationStore.operations) { operation in
-                    CustomOperationRow(
-                        operation: operation,
-                        colorScheme: colorScheme,
-                        operationStore: operationStore,
-                        downloadedVariants: textModelManager.downloadedVariants
-                    )
-                }
-            }
-
-            SettingsCard(colorScheme: colorScheme) {
                 CardHeader(
                     "Operations Menu",
                     subtitle: "Hold this hotkey to pop up a list of every operation near your cursor — handy for operations without (or instead of) their own dedicated hotkey"
@@ -732,6 +699,39 @@ private struct CustomOperationsSection: View {
                 // appears/clears without needing to re-touch the menu hotkey
                 // itself.
                 checkMenuHotkeyConflict(settings.operationsMenuHotkeyKeyCode)
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
+                HStack(alignment: .firstTextBaseline) {
+                    CardHeader(
+                        "Operations",
+                        subtitle: "Each one is a hotkey + model + prompt framing you define — nothing is built in"
+                    )
+                    Spacer()
+                    Button {
+                        operationStore.add(TextOperation())
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                if operationStore.operations.isEmpty {
+                    Text("No operations yet. Add one, then assign it a hotkey, a downloaded model, and optional prompt text to prepend or append around the selection.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ForEach(operationStore.operations) { operation in
+                    CustomOperationRow(
+                        operation: operation,
+                        colorScheme: colorScheme,
+                        operationStore: operationStore,
+                        downloadedVariants: textModelManager.downloadedVariants
+                    )
+                }
             }
 
             SettingsCard(colorScheme: colorScheme) {
