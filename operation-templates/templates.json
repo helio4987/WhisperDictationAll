@@ -90,6 +90,16 @@
       "appendEnabled": false,
       "appendText": "",
       "recommendedModelHint": "A 3B+ model handles this better than 1B — simplifying well requires some reasoning."
+    },
+    {
+      "id": "translate-to-english",
+      "name": "Translate to English",
+      "description": "Translates the selected text into English, regardless of the source language.",
+      "prependEnabled": true,
+      "prependText": "Translate the following text into English. Preserve the original meaning and tone as closely as possible. Respond with only the translation, no explanations.",
+      "appendEnabled": false,
+      "appendText": "",
+      "recommendedModelHint": "Use a multilingual instruct model — many small English-focused models translate poorly. Qwen2.5/3 and Llama-3.x handle this well at 3B+."
     }
   ]
 }
