@@ -622,6 +622,7 @@ private struct CustomOperationsSection: View {
     @ObservedObject private var textModelManager = TextModelManager.shared
     @ObservedObject private var textGenerationManager = TextGenerationManager.shared
     @ObservedObject private var operationStore = TextOperationStore.shared
+    @ObservedObject private var templateCatalog = OperationTemplateCatalog.shared
     let colorScheme: ColorScheme
 
     private static let quantizationOptions = ["Any", "Q4_K_M", "Q4_K_S", "Q5_K_M", "Q5_K_S", "Q6_K", "Q8_0"]
@@ -671,6 +672,67 @@ private struct CustomOperationsSection: View {
                         operationStore: operationStore,
                         downloadedVariants: textModelManager.downloadedVariants
                     )
+                }
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
+                HStack(alignment: .firstTextBaseline) {
+                    CardHeader(
+                        "Templates",
+                        subtitle: "Ready-made prompt framings, published separately from app releases — add Refresh to check for new ones"
+                    )
+                    Spacer()
+                    Button {
+                        Task { await templateCatalog.refresh() }
+                    } label: {
+                        if templateCatalog.isFetching {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(templateCatalog.isFetching)
+                    .help("Fetch the latest templates")
+                }
+
+                if let lastFetched = templateCatalog.lastFetched {
+                    Text("Last updated \(lastFetched.formatted(.relative(presentation: .named)))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                if let error = templateCatalog.fetchError {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if templateCatalog.templates.isEmpty && !templateCatalog.isFetching && templateCatalog.fetchError == nil {
+                    Text("No templates fetched yet — tap refresh to check for ready-made operations.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+
+                ForEach(templateCatalog.templates) { template in
+                    OperationTemplateRow(
+                        template: template,
+                        colorScheme: colorScheme,
+                        operationStore: operationStore
+                    )
+                }
+            }
+            .task {
+                // Auto-fetch only when there's no cache at all yet (first-ever
+                // open); otherwise the cached list from a prior session is
+                // shown as-is until the user explicitly taps refresh — same
+                // policy as the model catalog's own auto-fetch.
+                if templateCatalog.templates.isEmpty && templateCatalog.lastFetched == nil {
+                    await templateCatalog.refresh()
                 }
             }
 
@@ -1107,6 +1169,46 @@ private struct CustomOperationRow: View {
             hotkeyConflictWarning = "Same hotkey as the Secondary Language dictation hotkey."
         } else {
             hotkeyConflictWarning = nil
+        }
+    }
+}
+
+/// One fetched template: name, description, optional model hint, and a "Use
+/// Template" button that adds a new unassigned operation (prompt framing
+/// copied, hotkey and model left blank for the user to set) to the store.
+private struct OperationTemplateRow: View {
+    let template: OperationTemplate
+    let colorScheme: ColorScheme
+    @ObservedObject var operationStore: TextOperationStore
+
+    @State private var didAdd = false
+
+    var body: some View {
+        ModelRow(colorScheme: colorScheme) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(template.name)
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(template.description)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let hint = template.recommendedModelHint, !hint.isEmpty {
+                        Text(hint)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer()
+                Button(didAdd ? "Added" : "Use Template") {
+                    operationStore.add(template.makeOperation())
+                    didAdd = true
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(didAdd)
+            }
         }
     }
 }
