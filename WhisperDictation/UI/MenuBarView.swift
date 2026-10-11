@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     let engine: DictationEngine
+    let customOperationEngine: CustomOperationEngine
     @ObservedObject private var permissions = PermissionManager.shared
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var modelManager = ModelManager.shared
@@ -20,8 +21,18 @@ struct MenuBarView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
 
+            // Custom Operations: shown only while one is actively running —
+            // unlike the two dictation hotkeys, there's no persistent
+            // "ready" row per operation (there could be many), just a
+            // transient one while something is happening.
+            if customOperationEngine.state != .idle {
+                customOperationStatusRow
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+            }
+
             // Alerts (permissions / errors)
-            if !permissions.allPermissionsGranted || engine.modelLoadError != nil || engine.transcriptionError != nil || modelManager.downloadError != nil {
+            if !permissions.allPermissionsGranted || engine.modelLoadError != nil || engine.transcriptionError != nil || modelManager.downloadError != nil || customOperationEngine.lastError != nil {
                 alertsSection
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
@@ -183,6 +194,37 @@ struct MenuBarView: View {
                     NSApp.activate(ignoringOtherApps: true)
                 }
             }
+            if let error = customOperationEngine.lastError {
+                AlertRow(icon: "wand.and.stars", text: error, color: .orange) {
+                    openWindow(id: "settings")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
+        }
+    }
+
+    // MARK: - Custom Operations
+
+    private var customOperationStatusRow: some View {
+        HStack(spacing: 6) {
+            ProgressView()
+                .controlSize(.small)
+            Text(customOperationStatusText)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer()
+        }
+    }
+
+    private var customOperationStatusText: String {
+        let name = customOperationEngine.runningOperationName ?? "operation"
+        switch customOperationEngine.state {
+        case .idle: return ""
+        case .capturingSelection: return "Reading selection for \"\(name)\"..."
+        case .loadingModel: return "Loading model for \"\(name)\"..."
+        case .generating: return "Running \"\(name)\"..."
+        case .typing: return "Typing result for \"\(name)\"..."
         }
     }
 

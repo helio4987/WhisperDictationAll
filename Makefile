@@ -22,6 +22,8 @@ SWIFT_FILES := \
 	WhisperDictation/Engine/TextModelCatalog.swift \
 	WhisperDictation/Engine/TextModelManager.swift \
 	WhisperDictation/Engine/TextOperation.swift \
+	WhisperDictation/Engine/SelectionCapture.swift \
+	WhisperDictation/Engine/CustomOperationEngine.swift \
 	WhisperDictation/Engine/LanguageModelSlot.swift \
 	WhisperDictation/Engine/TextCorrector.swift \
 	WhisperDictation/Engine/VADSegmenter.swift \

@@ -3,10 +3,14 @@ import SwiftUI
 @main
 struct WhisperDictationApp: App {
     @State private var engine = DictationEngine()
+    @State private var customOperationEngine = CustomOperationEngine(
+        textInjector: TextInjector(),
+        soundFeedback: SoundFeedback()
+    )
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(engine: engine)
+            MenuBarView(engine: engine, customOperationEngine: customOperationEngine)
         } label: {
             // The label renders at launch (it's the menu bar icon), so it's a reliable
             // place to trigger first-launch onboarding for an LSUIElement app that has

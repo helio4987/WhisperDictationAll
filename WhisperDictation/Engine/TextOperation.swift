@@ -76,6 +76,15 @@ final class TextOperationStore: ObservableObject {
 
     @Published private(set) var operations: [TextOperation] = []
 
+    /// Fired after every mutation (add/update/remove/move) that changes the
+    /// persisted list — lets `CustomOperationEngine` keep its hotkey monitors
+    /// in sync (create one for a newly-hotkeyed operation, tear one down for
+    /// a removed operation) without depending on Combine. `@Published`
+    /// already covers SwiftUI's needs; this is a second, explicit channel for
+    /// a plain-class non-View observer, same shape as
+    /// `LanguageModelSlot.onStateChange`.
+    var onOperationsChanged: (() -> Void)?
+
     private let fileManager = FileManager.default
 
     private var fileURL: URL {
@@ -91,22 +100,26 @@ final class TextOperationStore: ObservableObject {
     func add(_ operation: TextOperation) {
         operations.append(operation)
         save()
+        onOperationsChanged?()
     }
 
     func update(_ operation: TextOperation) {
         guard let index = operations.firstIndex(where: { $0.id == operation.id }) else { return }
         operations[index] = operation
         save()
+        onOperationsChanged?()
     }
 
     func remove(_ operation: TextOperation) {
         operations.removeAll { $0.id == operation.id }
         save()
+        onOperationsChanged?()
     }
 
     func move(fromOffsets source: IndexSet, toOffset destination: Int) {
         operations.move(fromOffsets: source, toOffset: destination)
         save()
+        onOperationsChanged?()
     }
 
     /// Hotkeys already in use by another custom operation, excluding
