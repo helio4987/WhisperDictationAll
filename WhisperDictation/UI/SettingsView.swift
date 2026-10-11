@@ -1172,12 +1172,21 @@ private struct TextModelCandidateRow: View {
 private struct TextModelVariantRow: View {
     let variant: TextModelVariant
     @ObservedObject var textModelManager: TextModelManager
+    @ObservedObject private var textGenerationManager = TextGenerationManager.shared
     @ObservedObject private var operationStore = TextOperationStore.shared
 
     @State private var showInUseAlert = false
 
     private var referencingOperations: [TextOperation] {
         operationStore.operationsReferencing(modelVariantId: variant.id)
+    }
+
+    /// True while this specific variant's model is resident in memory (loaded
+    /// by `TextGenerationManager`, via the manual Test button or — once
+    /// wired — an operation's hotkey). Mirrors the primary/secondary
+    /// dictation model rows' own `isLoadedInMemory` check.
+    private var isLoadedInMemory: Bool {
+        textGenerationManager.loadState(forModelPath: textModelManager.localPath(for: variant).path) == .ready
     }
 
     var body: some View {
@@ -1208,23 +1217,40 @@ private struct TextModelVariantRow: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.system(size: 16))
-                    Button {
-                        if referencingOperations.isEmpty {
-                            try? textModelManager.deleteModel(variant)
-                        } else {
-                            showInUseAlert = true
+
+                    if isLoadedInMemory {
+                        Button("Unload") {
+                            Task {
+                                await textGenerationManager.unload(
+                                    modelPath: textModelManager.localPath(for: variant).path
+                                )
+                            }
                         }
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.red)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Delete downloaded model")
-                    .alert("Model In Use", isPresented: $showInUseAlert) {
-                        Button("OK", role: .cancel) {}
-                    } message: {
-                        Text(inUseAlertMessage)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    } else {
+                        // Delete is only offered once the model is not
+                        // currently resident in memory — unload (or an idle
+                        // timeout) first, same rule the primary/secondary
+                        // dictation model rows already follow.
+                        Button {
+                            if referencingOperations.isEmpty {
+                                try? textModelManager.deleteModel(variant)
+                            } else {
+                                showInUseAlert = true
+                            }
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Delete downloaded model")
+                        .alert("Model In Use", isPresented: $showInUseAlert) {
+                            Button("OK", role: .cancel) {}
+                        } message: {
+                            Text(inUseAlertMessage)
+                        }
                     }
                 }
             } else if textModelManager.isDownloading(variant) {
