@@ -20,7 +20,7 @@ struct WhisperDictationApp: App {
         .menuBarExtraStyle(.window)
 
         Window("WhisperDictation Settings", id: "settings") {
-            SettingsView(engine: engine)
+            SettingsView(engine: engine, customOperationEngine: customOperationEngine)
         }
         .windowResizability(.contentMinSize)
         .defaultPosition(.center)

@@ -184,7 +184,11 @@ final class TextOperationStore: ObservableObject {
     /// hotkey collides with one already assigned to a different operation.
     /// Collisions with the primary/secondary dictation hotkeys are checked
     /// separately by the caller (this store has no knowledge of `AppSettings`).
-    func conflictingOperation(forHotkeyKeyCode keyCode: Int, excluding: UUID) -> TextOperation? {
+    /// `excluding` is `nil` when checking a hotkey that isn't itself one of
+    /// the operations (e.g. the app-wide operations menu hotkey) — every
+    /// operation is then a candidate conflict, not just "every operation
+    /// except this one".
+    func conflictingOperation(forHotkeyKeyCode keyCode: Int, excluding: UUID? = nil) -> TextOperation? {
         guard keyCode != 0 else { return nil }
         return operations.first { $0.id != excluding && $0.hotkeyKeyCode == keyCode }
     }

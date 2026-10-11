@@ -42,10 +42,19 @@ final class CustomOperationEngine {
     private var hotkeyMonitors: [UUID: HotkeyMonitor] = [:]
     private var runningOperationId: UUID?
 
+    /// Dedicated hotkey that opens a cursor-anchored menu listing every
+    /// operation (see `AppSettings.operationsMenuHotkeyKeyCode`) — separate
+    /// from `hotkeyMonitors`, which are one-per-operation, since this one
+    /// watches a single app-wide setting rather than a per-operation field
+    /// and never needs rebuilding when operations are added/removed/edited.
+    private var menuHotkeyMonitor: HotkeyMonitor?
+    private let menuWindowController = OperationsMenuWindowController()
+
     init(textInjector: TextInjector, soundFeedback: SoundFeedback) {
         self.textInjector = textInjector
         self.soundFeedback = soundFeedback
         rebuildHotkeyMonitors()
+        setupMenuHotkeyMonitor()
         TextOperationStore.shared.onOperationsChanged = { [weak self] in
             self?.rebuildHotkeyMonitors()
         }
@@ -80,6 +89,34 @@ final class CustomOperationEngine {
         }
     }
 
+    /// Starts (or does nothing, if unassigned) the menu hotkey's monitor.
+    /// Key code 0 is NOT a safe "unassigned, watch nothing" sentinel at the
+    /// `HotkeyMonitor` level — it's the real key code for "A"
+    /// (`kVK_ANSI_A`). The per-operation monitors already avoid this by only
+    /// ever constructing a `HotkeyMonitor` when `operation.hasHotkey` is
+    /// true; this does the same check for the single menu hotkey setting.
+    private func setupMenuHotkeyMonitor() {
+        menuHotkeyMonitor?.stop()
+        menuHotkeyMonitor = nil
+        guard AppSettings.shared.operationsMenuHotkeyKeyCode != 0 else { return }
+        let monitor = HotkeyMonitor(
+            onKeyDown: { [weak self] in self?.handleMenuHotkeyDown() },
+            onKeyUp: { },
+            keyCodeProvider: { AppSettings.shared.operationsMenuHotkeyKeyCode }
+        )
+        monitor.start()
+        menuHotkeyMonitor = monitor
+    }
+
+    /// Called by Settings whenever `operationsMenuHotkeyKeyCode` changes —
+    /// unlike the per-operation hotkeys (which `HotkeyMonitor` tracks live
+    /// via `keyCodeProvider`), going from "unassigned" to "assigned" (or
+    /// back) changes whether a monitor exists at all, not just which key an
+    /// existing monitor watches, so it needs an explicit rebuild.
+    func menuHotkeySettingDidChange() {
+        setupMenuHotkeyMonitor()
+    }
+
     private func operation(forId id: UUID) -> TextOperation? {
         TextOperationStore.shared.operations.first { $0.id == id }
     }
@@ -87,9 +124,12 @@ final class CustomOperationEngine {
     func stopAllMonitors() {
         for monitor in hotkeyMonitors.values { monitor.stop() }
         hotkeyMonitors.removeAll()
+        menuHotkeyMonitor?.stop()
+        menuHotkeyMonitor = nil
+        menuWindowController.close()
     }
 
-    // MARK: - Running an operation
+    // MARK: - Running an operation (direct hotkey)
 
     private func handleHotkeyDown(operationId: UUID) {
         guard state == .idle else {
@@ -104,23 +144,85 @@ final class CustomOperationEngine {
             return
         }
 
-        runningOperationId = operationId
-        runningOperationName = operation.name
-        lastError = nil
-        state = .capturingSelection
-
+        beginRunning(operation)
         Task {
-            await run(operation: operation, variant: variant)
+            await captureAndRun(operation: operation, variant: variant)
         }
     }
 
-    private func run(operation: TextOperation, variant: TextModelVariant) async {
-        defer {
-            state = .idle
-            runningOperationId = nil
-            runningOperationName = nil
+    // MARK: - Running an operation (via the operations menu)
+
+    /// Captures the selection FIRST, then shows the menu, then runs the
+    /// chosen operation on that already-captured text — not the other way
+    /// around. Capturing after the user picks from the menu would try to
+    /// read the selection from whatever is frontmost at that moment, which
+    /// by then is this app's own popup panel, not the app the user was
+    /// actually working in. The one-time cost: the capture (a brief,
+    /// simulated Cmd+C) always happens on every menu-hotkey press, even if
+    /// the user ends up picking nothing — an acceptable tradeoff since it's
+    /// the same single clipboard round-trip every direct-hotkey press
+    /// already does, just moved earlier.
+    private func handleMenuHotkeyDown() {
+        guard state == .idle else {
+            fputs("[CustomOperationEngine] Ignoring menu hotkey press — an operation is already running.\n", stderr)
+            return
         }
 
+        let mouseLocation = NSEvent.mouseLocation
+        state = .capturingSelection
+
+        Task {
+            let selection: String
+            do {
+                selection = try await SelectionCapture.captureSelection()
+            } catch {
+                fputs("[CustomOperationEngine] Selection capture failed: \(error)\n", stderr)
+                lastError = error.localizedDescription
+                soundFeedback.playStopSound()
+                state = .idle
+                return
+            }
+
+            state = .idle // back to idle while the menu is open and awaiting a choice
+            let operations = TextOperationStore.shared.operations
+            menuWindowController.show(
+                operations: operations,
+                at: mouseLocation,
+                onSelect: { [weak self] operation in
+                    self?.runFromMenu(operation, selection: selection)
+                },
+                onDismiss: { }
+            )
+        }
+    }
+
+    private func runFromMenu(_ operation: TextOperation, selection: String) {
+        guard state == .idle else { return }
+        guard let modelVariantId = operation.modelVariantId,
+              let variant = TextModelManager.shared.downloadedVariants.first(where: { $0.id == modelVariantId })
+        else {
+            lastError = "\"\(operation.name)\" has no model assigned. Open Settings to pick one."
+            return
+        }
+
+        beginRunning(operation)
+        Task {
+            await runGeneration(operation: operation, variant: variant, selection: selection)
+        }
+    }
+
+    // MARK: - Shared execution
+
+    private func beginRunning(_ operation: TextOperation) {
+        runningOperationId = operation.id
+        runningOperationName = operation.name
+        lastError = nil
+    }
+
+    /// Direct-hotkey path: captures the selection itself, then delegates to
+    /// `runGeneration`. The menu path captures earlier (see
+    /// `handleMenuHotkeyDown`) and calls `runGeneration` directly.
+    private func captureAndRun(operation: TextOperation, variant: TextModelVariant) async {
         let selection: String
         do {
             selection = try await SelectionCapture.captureSelection()
@@ -128,7 +230,19 @@ final class CustomOperationEngine {
             fputs("[CustomOperationEngine] Selection capture failed: \(error)\n", stderr)
             lastError = error.localizedDescription
             soundFeedback.playStopSound()
+            state = .idle
+            runningOperationId = nil
+            runningOperationName = nil
             return
+        }
+        await runGeneration(operation: operation, variant: variant, selection: selection)
+    }
+
+    private func runGeneration(operation: TextOperation, variant: TextModelVariant, selection: String) async {
+        defer {
+            state = .idle
+            runningOperationId = nil
+            runningOperationName = nil
         }
 
         state = .loadingModel

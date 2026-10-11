@@ -5,6 +5,7 @@ import Carbon.HIToolbox
 
 struct SettingsView: View {
     let engine: DictationEngine
+    let customOperationEngine: CustomOperationEngine
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var modelManager = ModelManager.shared
     @ObservedObject private var permissions = PermissionManager.shared
@@ -103,7 +104,7 @@ struct SettingsView: View {
                 case .secondaryLanguage:
                     SecondaryLanguageSection(settings: settings, modelManager: modelManager, engine: engine, colorScheme: colorScheme)
                 case .customOperations:
-                    CustomOperationsSection(settings: settings, colorScheme: colorScheme)
+                    CustomOperationsSection(settings: settings, customOperationEngine: customOperationEngine, colorScheme: colorScheme)
                 case .permissions:
                     PermissionsSection(permissions: permissions, colorScheme: colorScheme)
                 }
@@ -618,12 +619,15 @@ private struct SecondaryLanguageSection: View {
 /// triggered.
 private struct CustomOperationsSection: View {
     @ObservedObject var settings: AppSettings
+    let customOperationEngine: CustomOperationEngine
     @ObservedObject private var catalog = TextModelCatalog.shared
     @ObservedObject private var textModelManager = TextModelManager.shared
     @ObservedObject private var textGenerationManager = TextGenerationManager.shared
     @ObservedObject private var operationStore = TextOperationStore.shared
     @ObservedObject private var templateCatalog = OperationTemplateCatalog.shared
     let colorScheme: ColorScheme
+
+    @State private var menuHotkeyConflictWarning: String?
 
     private static let quantizationOptions = ["Any", "Q4_K_M", "Q4_K_S", "Q5_K_M", "Q5_K_S", "Q6_K", "Q8_0"]
     private static let maxSizeOptions: [Double] = [0, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16]
@@ -638,6 +642,26 @@ private struct CustomOperationsSection: View {
         return value.truncatingRemainder(dividingBy: 1) == 0
             ? "\(Int(value)) GB"
             : String(format: "%.1f GB", value)
+    }
+
+    /// Mirrors `CustomOperationRow.checkHotkeyConflict`, scoped to the
+    /// app-wide operations menu hotkey instead of one operation's own —
+    /// warns, doesn't block, same policy as every other hotkey conflict in
+    /// this app (see `TextOperationStore`'s doc comment on why).
+    private func checkMenuHotkeyConflict(_ keyCode: Int) {
+        guard keyCode != 0 else {
+            menuHotkeyConflictWarning = nil
+            return
+        }
+        if let conflict = operationStore.conflictingOperation(forHotkeyKeyCode: keyCode) {
+            menuHotkeyConflictWarning = "Same hotkey as \"\(conflict.name)\"."
+        } else if keyCode == AppSettings.shared.hotkeyKeyCode {
+            menuHotkeyConflictWarning = "Same hotkey as the Primary Language dictation hotkey."
+        } else if keyCode == AppSettings.shared.secondaryHotkeyKeyCode {
+            menuHotkeyConflictWarning = "Same hotkey as the Secondary Language dictation hotkey."
+        } else {
+            menuHotkeyConflictWarning = nil
+        }
     }
 
     var body: some View {
@@ -673,6 +697,41 @@ private struct CustomOperationsSection: View {
                         downloadedVariants: textModelManager.downloadedVariants
                     )
                 }
+            }
+
+            SettingsCard(colorScheme: colorScheme) {
+                CardHeader(
+                    "Operations Menu",
+                    subtitle: "Hold this hotkey to pop up a list of every operation near your cursor — handy for operations without (or instead of) their own dedicated hotkey"
+                )
+                HotkeyRecorder(keyCode: $settings.operationsMenuHotkeyKeyCode, colorScheme: colorScheme, allowUnassign: true)
+                    .onChange(of: settings.operationsMenuHotkeyKeyCode) { _, newCode in
+                        customOperationEngine.menuHotkeySettingDidChange()
+                        checkMenuHotkeyConflict(newCode)
+                    }
+                if let warning = menuHotkeyConflictWarning {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(warning)
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.system(size: 11))
+                }
+                Text(settings.operationsMenuHotkeyKeyCode == 0
+                    ? "Not set — each operation can still be run via its own hotkey below."
+                    : "An operation keeps working through its own hotkey too, if it has one.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .onAppear { checkMenuHotkeyConflict(settings.operationsMenuHotkeyKeyCode) }
+            .onChange(of: operationStore.operations) { _, _ in
+                // An operation's own hotkey can change independently of this
+                // card (edited in its own row below) — re-check so a warning
+                // appears/clears without needing to re-touch the menu hotkey
+                // itself.
+                checkMenuHotkeyConflict(settings.operationsMenuHotkeyKeyCode)
             }
 
             SettingsCard(colorScheme: colorScheme) {
@@ -1473,6 +1532,12 @@ private struct QuantizationExplainerView: View {
 private struct HotkeyRecorder: View {
     @Binding var keyCode: Int
     let colorScheme: ColorScheme
+    /// When true, shows an "Unassign" control and treats `keyCode == 0` as a
+    /// legitimate "no hotkey set" state rather than just an uninitialized
+    /// value — used by hotkeys that are genuinely optional (e.g. the
+    /// operations menu hotkey), unlike the always-on primary/secondary
+    /// dictation hotkeys and per-operation hotkeys, which don't offer this.
+    var allowUnassign: Bool = false
     @State private var isRecording = false
     @State private var eventMonitors: [Any] = []
 
@@ -1514,9 +1579,9 @@ private struct HotkeyRecorder: View {
                                     .foregroundStyle(.white)
                             }
                         } else {
-                            Text(keyName(for: keyCode))
+                            Text(allowUnassign && keyCode == 0 ? "Not set" : keyName(for: keyCode))
                                 .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(allowUnassign && keyCode == 0 ? .secondary : .primary)
                         }
                     }
 
@@ -1531,6 +1596,29 @@ private struct HotkeyRecorder: View {
 
             // Quick pick pills
             HStack(spacing: 6) {
+                if allowUnassign {
+                    Button {
+                        keyCode = 0
+                        stopRecording()
+                    } label: {
+                        Text("Unassign")
+                            .font(.system(size: 11, weight: .medium))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(keyCode == 0
+                                        ? Color.blue.opacity(0.15)
+                                        : (colorScheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.04)))
+                            )
+                            .overlay(
+                                Capsule()
+                                    .stroke(keyCode == 0 ? Color.blue.opacity(0.4) : Color.clear, lineWidth: 1)
+                            )
+                            .foregroundStyle(keyCode == 0 ? .blue : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
                 ForEach(KeyCodeNames.presets, id: \.code) { preset in
                     Button {
                         keyCode = preset.code

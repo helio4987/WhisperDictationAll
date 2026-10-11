@@ -39,6 +39,7 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
         case textModelPreferredQuantization
         // Custom Operations (see TextOperation, TextGenerationManager)
         case textOperationsIdleTimeoutMinutes
+        case operationsMenuHotkeyKeyCode
     }
 
     // MARK: - Properties
@@ -139,6 +140,20 @@ final class AppSettings: ObservableObject, @unchecked Sendable {
     var textOperationsIdleTimeoutMinutes: Double {
         get { max(0, defaults.object(forKey: Key.textOperationsIdleTimeoutMinutes.rawValue) as? Double ?? 10) }
         set { defaults.set(max(0, newValue), forKey: Key.textOperationsIdleTimeoutMinutes.rawValue); objectWillChange.send() }
+    }
+
+    /// Hotkey that opens a cursor-anchored menu listing every Custom
+    /// Operation, so an operation can be run without needing its own
+    /// dedicated hotkey — operations are unbounded but hotkeys are a scarce,
+    /// collision-prone resource. An operation can still have BOTH: its own
+    /// hotkey for direct, instant access, AND be reachable through this menu.
+    /// 0 (the same "unassigned" sentinel every other hotkey setting uses)
+    /// means the feature is off until the user explicitly picks a key —
+    /// there's no sensible universal default here the way right Option is
+    /// for primary dictation.
+    var operationsMenuHotkeyKeyCode: Int {
+        get { defaults.object(forKey: Key.operationsMenuHotkeyKeyCode.rawValue) as? Int ?? 0 }
+        set { defaults.set(newValue, forKey: Key.operationsMenuHotkeyKeyCode.rawValue); objectWillChange.send() }
     }
 
     var soundFeedbackEnabled: Bool {

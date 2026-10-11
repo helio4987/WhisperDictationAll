@@ -323,6 +323,27 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.textModelPreferredQuantization, "Any")
     }
 
+    func testOperationsMenuHotkeyKeyCodeDefaultsToUnassignedAndRoundTrips() {
+        let key = "operationsMenuHotkeyKeyCode"
+        let saved = FileBackedDefaults.shared.object(forKey: key)
+        defer {
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
+        }
+        FileBackedDefaults.shared.removeObject(forKey: key)
+
+        // Unlike every other hotkey setting (which defaults to a real key),
+        // this one defaults to 0/unassigned — there's no sensible universal
+        // default key for an optional feature like this.
+        XCTAssertEqual(AppSettings.shared.operationsMenuHotkeyKeyCode, 0)
+
+        let settings = AppSettings.shared
+        settings.operationsMenuHotkeyKeyCode = 50
+        XCTAssertEqual(settings.operationsMenuHotkeyKeyCode, 50)
+        settings.operationsMenuHotkeyKeyCode = 0
+        XCTAssertEqual(settings.operationsMenuHotkeyKeyCode, 0)
+    }
+
     func testTextOperationsIdleTimeoutDefaultsToTenMinutesAndClampsNegative() {
         let key = "textOperationsIdleTimeoutMinutes"
         let saved = FileBackedDefaults.shared.object(forKey: key)

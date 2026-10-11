@@ -118,4 +118,63 @@ final class CustomOperationEngineTests: XCTestCase {
         engine.stopAllMonitors()
         engine.stopAllMonitors() // must not crash when called twice
     }
+
+    // MARK: - Operations menu hotkey
+
+    /// `menuHotkeySettingDidChange()` must be safe to call at any time —
+    /// Settings calls it on every edit to `operationsMenuHotkeyKeyCode`,
+    /// including going from unassigned (0) to assigned and back, which
+    /// changes whether a monitor exists at all (not just which key an
+    /// existing one watches).
+    func testMenuHotkeySettingDidChangeIsSafeAcrossAssignAndUnassign() {
+        let key = "operationsMenuHotkeyKeyCode"
+        let saved = FileBackedDefaults.shared.object(forKey: key)
+        defer {
+            if let saved { FileBackedDefaults.shared.set(saved, forKey: key) }
+            else { FileBackedDefaults.shared.removeObject(forKey: key) }
+        }
+
+        let engine = CustomOperationEngine(textInjector: TextInjector(), soundFeedback: SoundFeedback())
+        defer { engine.stopAllMonitors() }
+
+        AppSettings.shared.operationsMenuHotkeyKeyCode = 50
+        engine.menuHotkeySettingDidChange()
+
+        AppSettings.shared.operationsMenuHotkeyKeyCode = 0
+        engine.menuHotkeySettingDidChange()
+
+        AppSettings.shared.operationsMenuHotkeyKeyCode = 51
+        engine.menuHotkeySettingDidChange()
+        // No crash across assign -> unassign -> reassign is the assertion.
+    }
+
+    func testStopAllMonitorsClosesTheOperationsMenu() {
+        // The menu window controller is private state, but stopAllMonitors
+        // must tear it down along with the hotkey monitors without crashing
+        // — exercised here as "calling it is always safe", since there's no
+        // public way to assert the panel itself is closed from a unit test.
+        let engine = CustomOperationEngine(textInjector: TextInjector(), soundFeedback: SoundFeedback())
+        engine.stopAllMonitors()
+    }
+}
+
+// MARK: - TextOperationStore.conflictingOperation default parameter
+
+@MainActor
+final class CustomOperationEngineConflictCheckTests: XCTestCase {
+    /// Confirms the exact call shape `CustomOperationsSection.checkMenuHotkeyConflict`
+    /// uses (no `excluding:` argument) resolves against the default
+    /// parameter added for the operations menu hotkey, and finds a real
+    /// conflict when one of the stored operations uses that key code.
+    func testOperationsMenuHotkeyConflictCheckAgainstStoredOperations() {
+        let store = TextOperationStore.shared
+        for op in store.operations { store.remove(op) }
+
+        let operation = TextOperation(name: "Fix Grammar", hotkeyKeyCode: 58)
+        store.add(operation)
+        defer { store.remove(operation) }
+
+        let conflict = store.conflictingOperation(forHotkeyKeyCode: 58)
+        XCTAssertEqual(conflict?.name, "Fix Grammar")
+    }
 }

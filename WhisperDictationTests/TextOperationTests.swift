@@ -191,6 +191,26 @@ final class TextOperationStoreTests: XCTestCase {
         XCTAssertNil(store.conflictingOperation(forHotkeyKeyCode: 0, excluding: UUID()))
     }
 
+    /// `excluding: nil` (the default) — used when checking a hotkey that
+    /// isn't itself one of the operations, e.g. the app-wide operations menu
+    /// hotkey — must treat every operation as a candidate conflict rather
+    /// than requiring an id to exclude.
+    func testConflictingOperationWithNoExcludingFindsAnyMatchingOperation() {
+        let store = freshStore()
+        let op = TextOperation(name: "Fix Grammar", hotkeyKeyCode: 58)
+        store.add(op)
+
+        let conflict = store.conflictingOperation(forHotkeyKeyCode: 58)
+        XCTAssertEqual(conflict?.id, op.id)
+    }
+
+    func testConflictingOperationWithNoExcludingReturnsNilWhenNothingMatches() {
+        let store = freshStore()
+        store.add(TextOperation(name: "Fix Grammar", hotkeyKeyCode: 58))
+
+        XCTAssertNil(store.conflictingOperation(forHotkeyKeyCode: 59))
+    }
+
     func testOperationsReferencingReturnsOnlyMatchingOperations() {
         let store = freshStore()
         let referencing = TextOperation(name: "Uses model A", modelVariantId: "org/Repo/model-a.gguf")
