@@ -159,10 +159,26 @@ final class TextModelCatalog: ObservableObject {
     /// `nonisolated` since this does no main-actor work and tests call it
     /// synchronously (the enclosing class is `@MainActor`, which would otherwise
     /// isolate even this pure, static helper).
+    ///
+    /// Also excludes two kinds of auxiliary `.gguf` files that sit alongside
+    /// real model variants in the same repo but aren't themselves loadable
+    /// text-generation models:
+    /// - Importance-matrix calibration files ("imatrix.gguf" or
+    ///   "<repo>.imatrix.gguf") that some quantizers (bartowski, in
+    ///   particular) publish — internal inputs to the quantization process.
+    /// - Multimodal projector files ("mmproj-*.gguf"), used alongside a main
+    ///   vision/multimodal model, not loadable standalone.
+    /// Both fail in `llama_model_load_from_file` with a generic "Failed to
+    /// load model" error that gives no hint it's the wrong *kind* of file
+    /// rather than a corrupt or incompatible model. Matched by substring
+    /// (case-insensitive) since the exact file name varies per repo.
     nonisolated static func parseVariants(_ detail: HFModelDetail, repoId: String) -> [TextModelVariant] {
         detail.siblings.compactMap { sibling in
+            let lowercasedName = sibling.rfilename.lowercased()
             guard sibling.rfilename.hasSuffix(".gguf"),
                   !sibling.rfilename.contains("/"),
+                  !lowercasedName.contains("imatrix"),
+                  !lowercasedName.hasPrefix("mmproj"),
                   let lfs = sibling.lfs
             else { return nil }
             return TextModelVariant(

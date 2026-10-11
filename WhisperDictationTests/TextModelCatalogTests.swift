@@ -81,6 +81,34 @@ final class TextModelCatalogVariantParsingTests: XCTestCase {
         XCTAssertTrue(TextModelCatalog.parseVariants(detail, repoId: "org/Model-GGUF").isEmpty)
     }
 
+    func testExcludesImatrixCalibrationFiles() {
+        // Regression test: bartowski (and others) publish an imatrix.gguf
+        // calibration file alongside real model variants in the same repo.
+        // It passes the ".gguf" + top-level + has-lfs checks, but
+        // llama_model_load_from_file fails on it — it's not a loadable model.
+        let detail = HFModelDetail(siblings: [
+            HFSibling(rfilename: "imatrix.gguf", lfs: HFLfs(sha256: "abc", size: 50_000_000)),
+            HFSibling(rfilename: "Llama-3.2-3B-Instruct.imatrix.gguf", lfs: HFLfs(sha256: "def", size: 60_000_000)),
+            HFSibling(rfilename: "model-Q4_K_M.gguf", lfs: HFLfs(sha256: "ghi", size: 2_000_000_000)),
+        ])
+        let variants = TextModelCatalog.parseVariants(detail, repoId: "org/Model-GGUF")
+        XCTAssertEqual(variants.count, 1)
+        XCTAssertEqual(variants.first?.fileName, "model-Q4_K_M.gguf")
+    }
+
+    func testExcludesMultimodalProjectorFiles() {
+        // Regression test: a vision/multimodal repo publishes an
+        // "mmproj-*.gguf" file alongside the real model — it's a projector
+        // used together with a main model, not a standalone loadable one.
+        let detail = HFModelDetail(siblings: [
+            HFSibling(rfilename: "mmproj-Model-BF16.gguf", lfs: HFLfs(sha256: "abc", size: 900_000_000)),
+            HFSibling(rfilename: "model-Q4_K_M.gguf", lfs: HFLfs(sha256: "ghi", size: 2_000_000_000)),
+        ])
+        let variants = TextModelCatalog.parseVariants(detail, repoId: "org/Model-GGUF")
+        XCTAssertEqual(variants.count, 1)
+        XCTAssertEqual(variants.first?.fileName, "model-Q4_K_M.gguf")
+    }
+
     func testExcludesShardedFilesInsideASubfolder() {
         // Regression test: a repo like "Qwen3.8-Flash-Next-GGUF" splits a single
         // model into N files inside a subfolder (rfilename contains "/"). A flat
