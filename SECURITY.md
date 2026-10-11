@@ -16,23 +16,34 @@ WhisperDictation is a macOS dictation app that requires two sensitive permission
 - No audio or transcription data leaves the device. Ever.
 - No logging of transcribed text. Dictated content is never written to disk, Console.app, or the unified log — it is typed at the cursor and discarded.
 - No telemetry, analytics, crash reporting, or any form of tracking.
-- No network requests except for **user-initiated model downloads** from HuggingFace.
 - No automatic updates / update server.
 - No account, license check, or any "phone home" behavior.
-- No clipboard access.
 - No web content or external scripts (the app is 100% native Swift/SwiftUI).
+
+> **Fork note:** this fork adds Custom Operations (see the top of the README), which changes two things from the upstream guarantees above:
+> - **Clipboard access**: running an operation briefly copies the current text selection to read it, then restores whatever was previously on the clipboard. This happens only when the user presses an operation's own hotkey — never passively.
+> - **Network requests**: in addition to Whisper model downloads from Hugging Face, this fork also fetches GGUF text-generation models from Hugging Face (same user-initiated download flow in Settings), and fetches a list of ready-made operation prompt templates from this fork's own GitHub repo (`operation-templates/templates.json` on `main`) — only when the user taps Refresh in Settings, never automatically or in the background. Both are listed below with the exact code locations.
 
 ## Auditability
 
-The entire app is ~3,400 lines of Swift. You can verify every network-facing line in one command:
+You can verify every network-facing line in one command:
 
 ```bash
-git clone https://github.com/sam-pop/WhisperDictation.git
-cd WhisperDictation
+git clone https://github.com/helio4987/WhisperDictationAll.git
+cd WhisperDictationAll
 grep -rE "URLSession|URLRequest|http://|https://|NSURLConnection|Network\.framework" --include='*.swift' WhisperDictation/
 ```
 
-The only matches are in `WhisperDictation/Engine/ModelManager.swift` — URLs for HuggingFace model files and the `URLSession.shared.download` call that fetches them when the user clicks "Download" in Settings > Model.
+`WhisperDictation/Utilities/WhisperLanguages.swift` matches too, but only inside a doc-comment citation link — no network call there. The actual network-making matches, all user-initiated (nothing fires automatically or in the background):
+- `WhisperDictation/Engine/ModelManager.swift` — Whisper model downloads from Hugging Face, started when the user clicks "Download" in Settings > Primary/Secondary Language.
+- `WhisperDictation/Engine/TextModelCatalog.swift`/`TextModelManager.swift` — GGUF text-generation model discovery and download from Hugging Face, started when the user taps Refresh / Download in Settings > Custom Operations.
+- `WhisperDictation/Engine/OperationTemplateCatalog.swift` — fetches `operation-templates/templates.json` from this fork's own GitHub repo (raw content, `main` branch), only when the user taps Refresh in Settings > Custom Operations > Templates. Populates local prompt text fields only — nothing fetched this way is ever executed as code.
+
+For clipboard access (new in this fork, used by Custom Operations), search instead for `NSPasteboard`:
+```bash
+grep -rn "NSPasteboard" --include='*.swift' WhisperDictation/
+```
+The only use is in `WhisperDictation/Engine/SelectionCapture.swift`, which reads the current selection (via a simulated Cmd+C) and restores the clipboard's prior contents immediately after — triggered only by the user pressing a Custom Operation's own hotkey.
 
 We also recommend running a firewall like [Little Snitch](https://www.obdev.at/products/littlesnitch/) or [LuLu](https://objective-see.org/products/lulu.html) while testing the app. You will see zero outbound connections during normal use.
 
