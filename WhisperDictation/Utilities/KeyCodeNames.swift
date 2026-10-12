@@ -52,6 +52,10 @@ enum KeyCodeNames {
         Key(code: 48, symbol: "⇥", side: "",      name: "Tab"),
         Key(code: 49, symbol: "␣", side: "",      name: "Space"),
         Key(code: 53, symbol: "⎋", side: "",      name: "Escape"),
+        Key(code: 115, symbol: "↖", side: "",      name: "Home"),
+        Key(code: 116, symbol: "⇞", side: "",      name: "Page Up"),
+        Key(code: 119, symbol: "↘", side: "",      name: "End"),
+        Key(code: 121, symbol: "⇟", side: "",      name: "Page Down"),
     ]
 
     private static let byCode: [Int: Key] = Dictionary(uniqueKeysWithValues: all.map { ($0.code, $0) })
