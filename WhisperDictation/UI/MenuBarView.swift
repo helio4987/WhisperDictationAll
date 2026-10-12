@@ -6,6 +6,7 @@ struct MenuBarView: View {
     @ObservedObject private var permissions = PermissionManager.shared
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var modelManager = ModelManager.shared
+    @ObservedObject private var operationStore = TextOperationStore.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -20,6 +21,16 @@ struct MenuBarView: View {
             languagesSection
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
+
+            // Custom Operations summary: count + the shared menu hotkey (if
+            // set), so there's always a quick-glance line here even though
+            // individual operations don't get their own persistent row (see
+            // customOperationStatusRow below for the transient "running" one).
+            if !operationStore.operations.isEmpty {
+                customOperationsSummaryRow
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+            }
 
             // Custom Operations: shown only while one is actively running —
             // unlike the two dictation hotkeys, there's no persistent
@@ -204,6 +215,31 @@ struct MenuBarView: View {
     }
 
     // MARK: - Custom Operations
+
+    private var customOperationsSummaryRow: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.secondary.opacity(0.5))
+                .frame(width: 6, height: 6)
+            Text(customOperationsCountLabel)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            if settings.operationsMenuHotkeyKeyCode != 0 {
+                Text(KeyCodeNames.shortLabel(for: settings.operationsMenuHotkeyKeyCode))
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+    }
+
+    private var customOperationsCountLabel: String {
+        let count = operationStore.operations.count
+        return count == 1 ? "1 Custom Operation" : "\(count) Custom Operations"
+    }
 
     private var customOperationStatusRow: some View {
         HStack(spacing: 6) {
