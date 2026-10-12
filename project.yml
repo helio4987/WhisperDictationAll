@@ -62,6 +62,12 @@ targets:
         NSMicrophoneUsageDescription: "WhisperDictation needs microphone access to capture your voice for speech-to-text transcription."
         NSPrincipalClass: NSApplication
         CFBundleIconFile: AppIcon
+        # Kept in sync with WhisperDictation/Info.plist by hand -- xcodegen's
+        # generated plist otherwise silently resets these to its own
+        # defaults (1.0 / 1) on every `xcodegen generate`, clobbering a
+        # manual version bump there.
+        CFBundleShortVersionString: "1.1.0"
+        CFBundleVersion: "2"
     entitlements:
       path: WhisperDictation/WhisperDictation.entitlements
       properties:

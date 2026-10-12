@@ -10,6 +10,7 @@
     <a href="#install-dmg">Download</a> &bull;
     <a href="#quick-start">Quick Start</a> &bull;
     <a href="#features">Features</a> &bull;
+    <a href="#custom-operations">Custom Operations</a> &bull;
     <a href="#privacy--safety">Privacy</a> &bull;
     <a href="#models">Models</a> &bull;
     <a href="#contributing">Contributing</a>
@@ -36,7 +37,7 @@ WhisperDictation is a **free, open-source macOS dictation app** -- a local alter
 
 ## How This Fork Differs From The Original
 
-This is a personal fork of [sam-pop/WhisperDictation](https://github.com/sam-pop/WhisperDictation). It adds secondary-language dictation and reworks model/settings storage, on top of everything upstream already does:
+This is a personal fork of [sam-pop/WhisperDictation](https://github.com/sam-pop/WhisperDictation). It adds secondary-language dictation, a full local-LLM "Custom Operations" system, and reworks model/settings storage, on top of everything upstream already does:
 
 - **Secondary-language dictation hotkey** -- a second, independently configurable hotkey dictates in a different language. Push-to-talk only (no toggle mode, no live dictation) by design, to keep the feature scoped and low-risk.
 - **Per-language model catalog** -- the secondary hotkey uses Whisper's multilingual models, selectable independently from the primary (English) model.
@@ -49,6 +50,13 @@ This is a personal fork of [sam-pop/WhisperDictation](https://github.com/sam-pop
 - **Settings stored as JSON, not plist** -- settings live at `~/.WhisperDictation/settings.json` instead of `UserDefaults`/a plist, for legibility. Existing settings are migrated automatically.
 - **Downloaded models relocated** -- models now live at `~/.WhisperDictation/Models/` instead of `~/Library/Application Support/...`, migrated (moved, not copied) automatically on first run.
 - **Resizable Settings window.**
+- **Custom Operations** -- define any number of user-created operations that run a local text-generation LLM (via llama.cpp) over the current text selection and replace it with the result, each with its own name, hotkey, model, and optional prompt text to prepend/append around the selection. See [Custom Operations](#custom-operations) below.
+  - **Local LLM engine** -- GGUF text-generation models run entirely on-device via llama.cpp, downloaded on demand from Hugging Face (same opt-in flow as Whisper models), independent from the Whisper model catalog.
+  - **Idle-unload and delete-protection** -- text models lazy-load on first use, idle-unload after a configurable timeout, and a model currently referenced by an operation can't be deleted out from under it.
+  - **Operations menu hotkey** -- an optional, separately configurable hotkey pops up a cursor-anchored menu listing every operation, for operations without (or instead of) their own dedicated hotkey.
+  - **Ready-made templates** -- a curated set of operation templates (grammar fix, summarize, translate, etc.) is fetched from this fork's own GitHub repo and can be added with one click, no hand-written prompts required.
+  - **Menu bar visibility** -- a persistent summary row shows the operation count and the shared menu hotkey, plus a transient row while an operation is actively running (reading selection / loading model / generating / typing).
+  - **Clipboard access** (new permission-adjacent behavior) -- reading the current selection briefly copies it to the clipboard then restores whatever was there before; this happens only when an operation's hotkey is pressed, never passively. See [SECURITY.md](SECURITY.md) for the full breakdown.
 
 ### Regional/Style Vocabulary Presets
 
@@ -61,6 +69,24 @@ Transcrição em português europeu de Portugal, com ortografia e vocabulário d
 ```
 
 Have a preset for another language or regional variant? Feel free to write your own using the same approach -- a short description of the desired style/region up front, followed by vocabulary and phrases written with that region's spelling conventions.
+
+## Custom Operations
+
+Dictation turns speech into text. Custom Operations transform text that's already there -- select some text anywhere on your Mac, press a hotkey, and a local LLM rewrites the selection in place. Fix grammar, summarize, translate, change tone, or anything else you can describe in a prompt -- all offline, via [llama.cpp](https://github.com/ggerganov/llama.cpp).
+
+**How it works:**
+1. Open **Settings > Custom Operations** and add an operation (from a ready-made template, or from scratch).
+2. Give it a name, a hotkey, a downloaded GGUF text model, and optional text to prepend/append around the selection (e.g. "Fix grammar: ..." + selection).
+3. Select text in any app, press the operation's hotkey. The selection is read, run through the model, and the result replaces the selection -- no copy/paste round-trip.
+4. No dedicated hotkey for an operation, or want one place to pick from several? Set the **Operations Menu hotkey** (Settings > Custom Operations) to pop up a cursor-anchored list of every operation instead.
+
+**Models** are separate from the Whisper speech models -- any GGUF text-generation model works, discovered and downloaded from Hugging Face the same opt-in way as Whisper models. Models lazy-load on first use and idle-unload after a configurable timeout, same pattern as the dictation models.
+
+**Templates**: rather than writing prompts from scratch, Settings > Custom Operations > Templates lists ready-made operations (grammar fix, summarize, translate to English, etc.) fetched from [`operation-templates/templates.json`](operation-templates/templates.json) in this repo -- add one with a click, then tweak it.
+
+**Menu bar**: once you have at least one operation, the menu bar shows a summary row (operation count + the shared menu hotkey, if set), and a transient row while an operation is actively running (reading selection / loading model / generating / typing).
+
+See [SECURITY.md](SECURITY.md) for exactly what this feature adds in terms of clipboard access and network calls.
 
 ---
 
